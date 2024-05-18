@@ -13,19 +13,9 @@ class Account{
   balance: bigint;
   models: LookupMap<number>;
 
-  constructor(balance:bigint){
+  constructor(balance:bigint, models: LookupMap<number>){
     this.balance = BigInt('0');
-    this.models = new LookupMap('');
-  }
-
-  depositMoney(amount: bigint){
-    Assertions.isLeftGreaterThanRight(amount, 0);
-    this.balance += amount;
-  }  
-
-  withdrawnMoney(amount: bigint){
-    Assertions.isLeftGreaterThanRight(this.balance, amount);
-    this.balance -= amount;
+    this.models = models;
   }
 
   publishModel(name: string){
@@ -46,224 +36,267 @@ class Account{
     this.models.set(name, current - amount);
   }
 }
-@NearBindgen({ requireInit: true })
-export class FungibleToken {
-  accounts: LookupMap<bigint>;
-  accountRegistrants: LookupMap<string>;
-  accountDeposits: LookupMap<bigint>;
-  totalSupply: bigint;
 
-  constructor() {
-    this.accounts = new LookupMap("a");
-    this.accountRegistrants = new LookupMap("r");
-    this.accountDeposits = new LookupMap("d");
+@NearBindgen({requireInit: true})
+export class NeuroToken{
+  accounts: LookupMap<Account>; //
+  totalSupply: bigint; //Total supply
+  models: LookupMap<bigint>; //List of model and its owner;
+
+  constructor(){
     this.totalSupply = BigInt("0");
+    this.accounts = new LookupMap("a");
+    this.models = new LookupMap("m"); 
   }
-
   @initialize({})
-  init({ owner_id, total_supply }: { owner_id: string; total_supply: string }) {
+  init({total_supply} : {total_supply: string}){
     Assertions.isLeftGreaterThanRight(total_supply, 0);
-    validateAccountId(owner_id);
     this.totalSupply = BigInt(total_supply);
-    this.accounts.set(owner_id, this.totalSupply);
+    this.accounts = new LookupMap('a');
+    let ownerId : string= near.signerAccountId();
+    let ownerAccount = this.getAccount(ownerId);
+
+    this.accounts.set(ownerId, ownerAccount);
   }
 
-  internalGetAccountStorageUsage(accountLength: number): bigint {
-    const initialStorageUsage = near.storageUsage();
-    const tempAccountId = "a".repeat(64);
-    this.accounts.set(tempAccountId, BigInt("0"));
-    const len64StorageUsage = near.storageUsage() - initialStorageUsage;
-    const len1StorageUsage = len64StorageUsage / BigInt(64);
-    const lenAccountStorageUsage = len1StorageUsage * BigInt(accountLength);
-    this.accounts.remove(tempAccountId);
-    return lenAccountStorageUsage * BigInt(3); // we create an entry in 3 maps
-  }
-
-  internalRegisterAccount({
-    registrantAccountId,
-    accountId,
-    amount,
-  }: {
-    registrantAccountId: string;
-    accountId: string;
-    amount: string;
-  }) {
-    assert(
-      !this.accounts.containsKey(accountId),
-      "Account is already registered"
+  getAccount(ownerId: string){
+    let account : Account = this.accounts.get(ownerId);
+    if (account === null) {
+      return new Account(BigInt('0'), new LookupMap(''));
+    }
+    return new Account(
+      account.balance,
+      account.models,
     );
-    this.accounts.set(accountId, BigInt("0"));
-    this.accountRegistrants.set(accountId, registrantAccountId);
-    this.accountDeposits.set(accountId, BigInt(amount));
   }
 
-  internalSendNEAR(receivingAccountId: string, amount: bigint) {
-    Assertions.isLeftGreaterThanRight(amount, 0);
-    Assertions.isLeftGreaterThanRight(
-      near.accountBalance(),
-      amount,
-      `Not enough balance ${near.accountBalance()} to send ${amount}`
-    );
-    const promise = near.promiseBatchCreate(receivingAccountId);
-    near.promiseBatchActionTransfer(promise, amount);
-    near.promiseReturn(promise);
+  setAccount(accountId : string, account : Account){
+    this.accounts.set(accountId, account);
   }
 
-  internalGetBalance(accountId: string): string {
+  // internalSendNEAR(receivingAccountId: string, amount: bigint) {
+  //   Assertions.isLeftGreaterThanRight(amount, 0);
+  //   Assertions.isLeftGreaterThanRight(
+  //     near.accountBalance(),
+  //     amount,
+  //     `Not enough balance ${near.accountBalance()} to send ${amount}`
+  //   );
+  //   const promise = near.promiseBatchCreate(receivingAccountId);
+  //   near.promiseBatchActionTransfer(promise, amount);
+  //   near.promiseReturn(promise);
+  // }
+
+  getBalance(accountId: string): bigint {
     assert(
       this.accounts.containsKey(accountId),
       `Account ${accountId} is not registered`
     );
-    return this.accounts.get(accountId).toString();
-  }
+    return this.accounts.get(accountId).balance;
+  } 
 
-  internalDeposit(accountId: string, amount: string) {
-    const balance = this.internalGetBalance(accountId);
-    const newBalance = BigInt(balance) + BigInt(amount);
-    this.accounts.set(accountId, newBalance);
-    const newSupply = BigInt(this.totalSupply) + BigInt(amount);
-    this.totalSupply = newSupply;
+  getModelPercentage(accountId: string, model_name: string):number{
+    assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
+    assert(this.accounts.get(accountId).models.containsKey(model_name), `Account ${accountId} does not have the model ${model_name}`);
+    
+    return this.accounts.get(accountId).models.get(model_name);
   }
+  internalTransaction(accountId: string, model_name:string, amount: bigint, model_percentage:number, withdraw:bigint) {
+    const balance = this.getBalance(accountId); 
+    const percentage_own = this.getModelPercentage(accountId, model_name);
 
-  internalWithdraw(accountId: string, amount: string) {
-    const balance = this.internalGetBalance(accountId);
-    const newBalance = BigInt(balance) - BigInt(amount);
+    const newBalance = balance + withdraw * BigInt(amount);
+    const newOwn = percentage_own +  Number(withdraw) * model_percentage ;
+
     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
-    Assertions.isLeftGreaterThanRight(
-      newBalance,
-      -1,
-      "The account doesn't have enough balance"
-    );
-    Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
-    this.accounts.set(accountId, newBalance);
+    if(withdraw == BigInt(-1)){
+      Assertions.isLeftGreaterThanRight(newBalance,-1,"The account doesn't have enough balance");
+      Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
+      Assertions.isLeftGreaterThanRight(newOwn, 0.0, "You can not lose more of a company");
+    }
+
+    this.getAccount(accountId).models.set(model_name, newOwn);
+    const newModels = this.getAccount(accountId).models;
+
+    const newAccount = new Account(newBalance, newModels);
+    this.setAccount(accountId, newAccount);
     this.totalSupply = newSupply;
   }
 
-  internalTransfer(
-    senderId: string,
-    receiverId: string,
-    amount: string,
-    _memo: string = null
-  ) {
+  internalTransfer(senderId: string,receiverId: string,model_name:string, amount: bigint, model_percentage:number ) {
     assert(senderId != receiverId, "Sender and receiver should be different");
     Assertions.isLeftGreaterThanRight(amount, 0);
-    this.internalWithdraw(senderId, amount);
-    this.internalDeposit(receiverId, amount);
+    this.internalTransaction(senderId, model_name, amount, model_percentage, BigInt(-1));
+    this.internalTransaction(receiverId, model_name, amount, model_percentage, BigInt(1));
   }
 
-  @call({ payableFunction: true })
-  storage_deposit({ account_id }: { account_id: string }) {
-    const accountId = account_id || near.predecessorAccountId();
-    validateAccountId(accountId);
-    const attachedDeposit = near.attachedDeposit();
-    if (this.accounts.containsKey(accountId)) {
-      if (attachedDeposit > 0) {
-        this.internalSendNEAR(near.predecessorAccountId(), attachedDeposit);
-        return {
-          message:
-            "Account is already registered, deposit refunded to predecessor",
-        };
-      }
-      return { message: "Account is already registered" };
-    }
-    const storageCost = this.internalGetAccountStorageUsage(accountId.length);
-    if (attachedDeposit < storageCost) {
-      this.internalSendNEAR(near.predecessorAccountId(), attachedDeposit);
-      return {
-        message: `Not enough attached deposit to cover storage cost. Required: ${storageCost.toString()}`,
-      };
-    }
-    this.internalRegisterAccount({
-      registrantAccountId: near.predecessorAccountId(),
-      accountId: accountId,
-      amount: storageCost.toString(),
-    });
-    const refund = attachedDeposit - storageCost;
-    if (refund > 0) {
-      near.log(
-        "Storage registration refunding " +
-          refund +
-          " yoctoNEAR to " +
-          near.predecessorAccountId()
-      );
-      this.internalSendNEAR(near.predecessorAccountId(), refund);
-    }
-    return {
-      message: `Account ${accountId} registered with storage deposit of ${storageCost.toString()}`,
-    };
-  }
+  @call({payableFunction:true})
+  publishModel({account_id, name, amount} : {account_id:string, name:string, amount:number}){
+    // const accountId = account_id || near.predecessorAccountId();
+    // validateAccountId(accountId);
+    // const attachedDeposit = near.attachedDeposit();
 
-  @call({ payableFunction: true })
-  ft_transfer({
-    receiver_id,
-    amount,
-    memo,
-  }: {
-    receiver_id: string;
-    amount: string;
-    memo: string;
-  }) {
+    // if (this.accounts.containsKey(accountId)) {
+    //   if (attachedDeposit > 0) {
+    //     this.internalSendNEAR(near.predecessorAccountId(), attachedDeposit);
+    //     return {
+    //       message:
+    //         "Account is already registered, deposit refunded to predecessor",
+    //     };
+    //   }
+    //   return { message: "Account is already registered" };
+    // }
+  }
+  
+  @call({payableFunction:true})
+  transferStock({receiver_id, model_name, amount, model_percentage} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = near.predecessorAccountId();
-    near.log(
-      "Transfer " + amount + " token from " + senderId + " to " + receiver_id
-    );
-    this.internalTransfer(senderId, receiver_id, amount, memo);
-  }
-
-  @call({ payableFunction: true })
-  ft_transfer_call({
-    receiver_id,
-    amount,
-    memo,
-    msg,
-  }: {
-    receiver_id: string;
-    amount: string;
-    memo: string;
-    msg: string;
-  }) {
-    Assertions.hasAtLeastOneAttachedYocto();
-    const senderId = near.predecessorAccountId();
-    this.internalTransfer(senderId, receiver_id, amount, memo);
+    near.log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
+    
+    this.internalTransfer(senderId, receiver_id, model_name, amount, model_percentage);
+    
     const promise = near.promiseBatchCreate(receiver_id);
-    const params = {
-      sender_id: senderId,
-      amount: amount,
-      msg: msg,
-      receiver_id: receiver_id,
-    };
-    near.log(
-      "Transfer call " +
-        amount +
-        " token from " +
-        senderId +
-        " to " +
-        receiver_id +
-        " with message " +
-        msg
-    );
-    near.promiseBatchActionFunctionCall(
-      promise,
-      "ft_on_transfer",
-      JSON.stringify(params),
-      0,
-      30000000000000
-    );
-    return near.promiseReturn(promise);
+
+    near.promiseBatchActionTransfer(promise, BigInt(amount));
+    near.promiseReturn(promise);
   }
 
   @view({})
-  ft_total_supply() {
+  get_total_supply(){
     return this.totalSupply;
   }
-
-  @view({})
-  ft_balance_of({ account_id }: { account_id: string }) {
-    validateAccountId(account_id);
-    return this.internalGetBalance(account_id);
-  }
 }
+
+//////////////////////
+// @NearBindgen({ requireInit: true })
+// export class FungibleToken {
+//   accounts: LookupMap<bigint>;
+//   accountRegistrants: LookupMap<string>;
+//   accountDeposits: LookupMap<bigint>;
+//   totalSupply: bigint;
+
+//   constructor() {
+//     this.accounts = new LookupMap("a");
+//     this.accountRegistrants = new LookupMap("r");
+//     this.accountDeposits = new LookupMap("d");
+//     this.totalSupply = BigInt("0");
+//   }
+
+//   @initialize({})
+//   init({ owner_id, total_supply }: { owner_id: string; total_supply: string }) {
+//     Assertions.isLeftGreaterThanRight(total_supply, 0);
+//     validateAccountId(owner_id);
+//     this.totalSupply = BigInt(total_supply);
+//     this.accounts.set(owner_id, this.totalSupply);
+//   }
+
+//   internalGetAccountStorageUsage(accountLength: number): bigint {
+//     const initialStorageUsage = near.storageUsage();
+//     const tempAccountId = "a".repeat(64);
+//     this.accounts.set(tempAccountId, BigInt("0"));
+//     const len64StorageUsage = near.storageUsage() - initialStorageUsage;
+//     const len1StorageUsage = len64StorageUsage / BigInt(64);
+//     const lenAccountStorageUsage = len1StorageUsage * BigInt(accountLength);
+//     this.accounts.remove(tempAccountId);
+//     return lenAccountStorageUsage * BigInt(3); // we create an entry in 3 maps
+//   }
+
+//   internalRegisterAccount({
+//     registrantAccountId,
+//     accountId,
+//     amount,
+//   }: {
+//     registrantAccountId: string;
+//     accountId: string;
+//     amount: string;
+//   }) {
+//     assert(
+//       !this.accounts.containsKey(accountId),
+//       "Account is already registered"
+//     );
+//     this.accounts.set(accountId, BigInt("0"));
+//     this.accountRegistrants.set(accountId, registrantAccountId);
+//     this.accountDeposits.set(accountId, BigInt(amount));
+//   }
+
+//   internalSendNEAR(receivingAccountId: string, amount: bigint) {
+//     Assertions.isLeftGreaterThanRight(amount, 0);
+//     Assertions.isLeftGreaterThanRight(
+//       near.accountBalance(),
+//       amount,
+//       `Not enough balance ${near.accountBalance()} to send ${amount}`
+//     );
+//     const promise = near.promiseBatchCreate(receivingAccountId);
+//     near.promiseBatchActionTransfer(promise, amount);
+//     near.promiseReturn(promise);
+//   }
+
+//   internalGetBalance(accountId: string): string {
+//     assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
+//     return this.accounts.get(accountId).toString();
+//   }
+
+//   internalDeposit(accountId: string, amount: string) {
+//     const balance = this.internalGetBalance(accountId);
+//     const newBalance = BigInt(balance) + BigInt(amount);
+//     this.accounts.set(accountId, newBalance);
+//     const newSupply = BigInt(this.totalSupply) + BigInt(amount);
+//     this.totalSupply = newSupply;
+//   }
+
+//   internalWithdraw(accountId: string, amount: string) {
+//     const balance = this.internalGetBalance(accountId);
+//     const newBalance = BigInt(balance) - BigInt(amount);
+//     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
+//     Assertions.isLeftGreaterThanRight(
+//       newBalance,
+//       -1,
+//       "The account doesn't have enough balance"
+//     );
+//     Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
+//     this.accounts.set(accountId, newBalance);
+//     this.totalSupply = newSupply;
+//   }
+
+//   internalTransfer(
+//     senderId: string,
+//     receiverId: string,
+//     amount: string,
+//     _memo: string = null
+//   ) {
+//     assert(senderId != receiverId, "Sender and receiver should be different");
+//     Assertions.isLeftGreaterThanRight(amount, 0);
+//     this.internalWithdraw(senderId, amount);
+//     this.internalDeposit(receiverId, amount);
+//   }
+
+//   @call({ payableFunction: true })
+//   ft_transfer({receiver_id, model, amount}: {receiver_id: string, model:string, amount: string}) {
+//     Assertions.hasAtLeastOneAttachedYocto();
+//     const senderId = near.predecessorAccountId();
+//     near.log(
+//       "Transfer " + amount + " token from " + senderId + " to " + receiver_id
+//     );
+    
+//     this.internalTransfer(senderId, receiver_id, amount);
+    
+//     const promise = near.promiseBatchCreate(receiver_id);
+
+//     near.promiseBatchActionTransfer(promise, BigInt(amount));
+//     near.promiseReturn(promise);
+//   }
+ 
+//   @view({})
+//   ft_total_supply() {
+//     return this.totalSupply;
+//   }
+
+//   @view({})
+//   ft_balance_of({ account_id }: { account_id: string }) {
+//     validateAccountId(account_id);
+//     return this.internalGetBalance(account_id);
+//   }
+// }
 
 class Assertions {
   static hasAtLeastOneAttachedYocto() {
