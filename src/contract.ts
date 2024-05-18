@@ -74,17 +74,13 @@ export class NeuroToken{
     this.accounts.set(accountId, account);
   }
 
-  // internalSendNEAR(receivingAccountId: string, amount: bigint) {
-  //   Assertions.isLeftGreaterThanRight(amount, 0);
-  //   Assertions.isLeftGreaterThanRight(
-  //     near.accountBalance(),
-  //     amount,
-  //     `Not enough balance ${near.accountBalance()} to send ${amount}`
-  //   );
-  //   const promise = near.promiseBatchCreate(receivingAccountId);
-  //   near.promiseBatchActionTransfer(promise, amount);
-  //   near.promiseReturn(promise);
-  // }
+  sendNEAR(receivingAccountId: string, amount: bigint) {
+    Assertions.isLeftGreaterThanRight(amount, 0);
+    Assertions.isLeftGreaterThanRight(near.accountBalance(), amount, `Not enough balance ${near.accountBalance()} to send ${amount}`);
+    const promise = near.promiseBatchCreate(receivingAccountId);
+    near.promiseBatchActionTransfer(promise, amount);
+    near.promiseReturn(promise);
+  }
 
   getBalance(accountId: string): bigint {
     assert(
@@ -105,7 +101,7 @@ export class NeuroToken{
     const percentage_own = this.getModelPercentage(accountId, model_name);
 
     const newBalance = balance + withdraw * BigInt(amount);
-    const newOwn = percentage_own +  Number(withdraw) * model_percentage ;
+    const newOwn = percentage_own + Number(withdraw) * model_percentage ;
 
     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
     if(withdraw == BigInt(-1)){
@@ -146,7 +142,16 @@ export class NeuroToken{
     //   return { message: "Account is already registered" };
     // }
   }
-  
+  @call({payableFunction:true})
+  useModel({receiver_id, model_name, amount} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
+    Assertions.hasAtLeastOneAttachedYocto();
+    const senderId = near.predecessorAccountId();
+    near.log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
+    
+    this.internalTransfer(senderId, receiver_id, model_name, amount, Number(0));
+    this.sendNEAR(receiver_id, amount); 
+    
+  }
   @call({payableFunction:true})
   transferStock({receiver_id, model_name, amount, model_percentage} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
     Assertions.hasAtLeastOneAttachedYocto();
@@ -154,11 +159,7 @@ export class NeuroToken{
     near.log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
     
     this.internalTransfer(senderId, receiver_id, model_name, amount, model_percentage);
-    
-    const promise = near.promiseBatchCreate(receiver_id);
-
-    near.promiseBatchActionTransfer(promise, BigInt(amount));
-    near.promiseReturn(promise);
+    this.sendNEAR(receiver_id, amount);  
   }
 
   @view({})
