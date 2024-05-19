@@ -191,6 +191,14 @@ function log(...params) {
   }, ""));
 }
 /**
+ * Returns the account ID of the account that signed the transaction.
+ * Can only be called in a call or initialize function.
+ */
+function signerAccountId() {
+  env.signer_account_id(0);
+  return str(env.read_register(0));
+}
+/**
  * Returns the account ID of the account that called the function.
  * Can only be called in a call or initialize function.
  */
@@ -253,12 +261,6 @@ function storageGetEvictedRaw() {
   return env.read_register(EVICTED_REGISTER);
 }
 /**
- * Returns the current accounts NEAR storage usage.
- */
-function storageUsage() {
-  return env.storage_usage();
-}
-/**
  * Writes the provided bytes to NEAR storage under the provided key.
  *
  * @param key - The key under which to store the value.
@@ -303,30 +305,6 @@ function input() {
  */
 function promiseBatchCreate(accountId) {
   return env.promise_batch_create(accountId);
-}
-/**
- * Attach a function call promise action to the NEAR promise index with the provided promise index.
- *
- * @param promiseIndex - The index of the promise to attach a function call action to.
- * @param methodName - The name of the method to be called.
- * @param args - The arguments to call the method with.
- * @param amount - The amount of NEAR to attach to the call.
- * @param gas - The amount of Gas to attach to the call.
- */
-function promiseBatchActionFunctionCallRaw(promiseIndex, methodName, args, amount, gas) {
-  env.promise_batch_action_function_call(promiseIndex, methodName, args, amount, gas);
-}
-/**
- * Attach a function call promise action to the NEAR promise index with the provided promise index.
- *
- * @param promiseIndex - The index of the promise to attach a function call action to.
- * @param methodName - The name of the method to be called.
- * @param args - The utf-8 string arguments to call the method with.
- * @param amount - The amount of NEAR to attach to the call.
- * @param gas - The amount of Gas to attach to the call.
- */
-function promiseBatchActionFunctionCall(promiseIndex, methodName, args, amount, gas) {
-  promiseBatchActionFunctionCallRaw(promiseIndex, methodName, encode(args), amount, gas);
 }
 /**
  * Attach a transfer promise action to the NEAR promise index with the provided promise index.
@@ -521,319 +499,245 @@ function NearBindgen({
   };
 }
 
-var _dec, _dec2, _dec3, _dec4, _dec5, _dec6, _dec7, _class, _class2;
-
-// class Account{
-//   private balance: bigint;
-//   private modelsInvested: LookupMap<bigint>;
-//   private modelsOwn: LookupMap<boolean>;
-
-//   constructor(balance: bigint, modelsInvested: LookupMap<bigint>, modelsOwn : LookupMap<boolean>){
-//     this.balance = balance; //The current balance;
-//     this.modelsInvested = modelsInvested; //All model that the current account invested in
-//     this.modelsOwn = modelsOwn; // All model that the current account own
-//   }
-
-//   public depositMoney(amount : bigint) : void{
-//     Assertions.isLeftGreaterThanRight(amount, 0);
-//     this.balance += amount;
-//   }
-
-//   public withdrawMoney(amount : bigint) : void{
-//     Assertions.isLeftGreaterThanRight(this.balance, amount);
-//     this.balance -= amount; 
-//   }
-
-//   public addNewModelsInvested(name : string, amount : bigint) : void{
-//     this.modelsInvested.set(name, amount);
-//   }
-
-//   public removeInvestedModel(name: string) : void{
-//     assert(this.modelsInvested.containsKey(name), "Model is not exsisted in your list");
-//     this.modelsInvested.remove(name);
-//   }
-
-//   public addModel(name : string) : void{
-//     this.modelsOwn.set(name, true);
-//   }
-
-//   public removeModel(name : string) : void{
-//     this.modelsOwn.remove(name);
-//   }
-
-//   public totalBalance() : bigint{
-//     return this.balance;
-//   }
-
-//   public getModelsInvested() : LookupMap<bigint>{
-//     return this.modelsInvested;
-//   }
-
-//   public getModelsOwn() : LookupMap<boolean>{
-//     return this.modelsOwn;
-//   }
-// }
-
-// @NearBindgen({requireInit : true})
-// export class NeuroToken{
-//   accounts: LookupMap<bigint>;
-//   models: LookupMap<string>;
-//   totalSupply: bigint;
-
-//   constructor(){
-//     this.accounts = new LookupMap("a");
-//     this.models = new LookupMap("m");
-//     this.totalSupply = BigInt("0");
-//   }
-
-//   @initialize({})
-//   init({owner_id, total_supply} : {owner_id : string, total_supply:string}){
-//     Assertions.isLeftGreaterThanRight(total_supply, 0);
-//     validateAccountId(owner_id);
-//     this.totalSupply = BigInt(total_supply); 
-//     this.accounts.set(owner_id, this.totalSupply);
-//   }
-
-//   @view({})
-//   get_total_supply() : bigint{
-//     return this.totalSupply;
-//   }
-//   @view({})
-//   get_
-// }
-let FungibleToken = (_dec = NearBindgen({
+var _dec, _dec2, _dec3, _dec4, _dec5, _dec6, _dec7, _dec8, _class, _class2;
+class Account {
+  constructor(balance, models) {
+    this.balance = BigInt('0');
+    this.models = models;
+  }
+  publishModel(name) {
+    this.models.set(name, 100.0);
+  }
+  deleteModel(name) {
+    this.models.remove(name);
+  }
+  buyModel(name, amount) {
+    this.models.set(name, amount);
+  }
+  sellModel(name, amount) {
+    let current = this.models.get(name);
+    Assertions.isLeftGreaterThanRight(current, amount);
+    this.models.set(name, current - amount);
+  }
+}
+let NeuroToken = (_dec = NearBindgen({
   requireInit: true
-}), _dec2 = initialize(), _dec3 = call({
-  payableFunction: true
-}), _dec4 = call({
+}), _dec2 = initialize(), _dec3 = call({}), _dec4 = call({
   payableFunction: true
 }), _dec5 = call({
   payableFunction: true
-}), _dec6 = view(), _dec7 = view(), _dec(_class = (_class2 = class FungibleToken {
+}), _dec6 = view(), _dec7 = view(), _dec8 = view(), _dec(_class = (_class2 = class NeuroToken {
+  //
+  //Total supply
+  //List of model and its owner;
+
   constructor() {
-    this.accounts = new LookupMap("a");
-    this.accountRegistrants = new LookupMap("r");
-    this.accountDeposits = new LookupMap("d");
     this.totalSupply = BigInt("0");
+    this.accounts = new LookupMap("a");
+    this.models = new LookupMap("m");
   }
   init({
-    owner_id,
     total_supply
   }) {
     Assertions.isLeftGreaterThanRight(total_supply, 0);
-    validateAccountId(owner_id);
     this.totalSupply = BigInt(total_supply);
-    this.accounts.set(owner_id, this.totalSupply);
+    this.accounts = new LookupMap('a');
+    let ownerId = signerAccountId();
+    let ownerAccount = this.getAccount(ownerId);
+    this.accounts.set(ownerId, ownerAccount);
   }
-  internalGetAccountStorageUsage(accountLength) {
-    const initialStorageUsage = storageUsage();
-    const tempAccountId = "a".repeat(64);
-    this.accounts.set(tempAccountId, BigInt("0"));
-    const len64StorageUsage = storageUsage() - initialStorageUsage;
-    const len1StorageUsage = len64StorageUsage / BigInt(64);
-    const lenAccountStorageUsage = len1StorageUsage * BigInt(accountLength);
-    this.accounts.remove(tempAccountId);
-    return lenAccountStorageUsage * BigInt(3); // we create an entry in 3 maps
+  getAccount(ownerId) {
+    let account = this.accounts.get(ownerId);
+    if (account === null) {
+      return new Account(BigInt('0'), new LookupMap(''));
+    }
+    return new Account(account.balance, account.models);
   }
-  internalRegisterAccount({
-    registrantAccountId,
-    accountId,
-    amount
-  }) {
-    assert(!this.accounts.containsKey(accountId), "Account is already registered");
-    this.accounts.set(accountId, BigInt("0"));
-    this.accountRegistrants.set(accountId, registrantAccountId);
-    this.accountDeposits.set(accountId, BigInt(amount));
+  setAccount(accountId, account) {
+    this.accounts.set(accountId, account);
   }
-  internalSendNEAR(receivingAccountId, amount) {
+  sendNEAR(receivingAccountId, amount) {
     Assertions.isLeftGreaterThanRight(amount, 0);
     Assertions.isLeftGreaterThanRight(accountBalance(), amount, `Not enough balance ${accountBalance()} to send ${amount}`);
     const promise = promiseBatchCreate(receivingAccountId);
     promiseBatchActionTransfer(promise, amount);
     promiseReturn(promise);
   }
-  internalGetBalance(accountId) {
+  getBalance(accountId) {
     assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
-    return this.accounts.get(accountId).toString();
+    return this.accounts.get(accountId).balance;
   }
-  internalDeposit(accountId, amount) {
-    const balance = this.internalGetBalance(accountId);
-    const newBalance = BigInt(balance) + BigInt(amount);
-    this.accounts.set(accountId, newBalance);
-    const newSupply = BigInt(this.totalSupply) + BigInt(amount);
-    this.totalSupply = newSupply;
+  getModelPercentage(accountId, model_name) {
+    assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
+    assert(this.accounts.get(accountId).models.containsKey(model_name), `Account ${accountId} does not have the model ${model_name}`);
+    return this.accounts.get(accountId).models.get(model_name);
   }
-  internalWithdraw(accountId, amount) {
-    const balance = this.internalGetBalance(accountId);
-    const newBalance = BigInt(balance) - BigInt(amount);
+  internalTransaction(accountId, model_name, amount, model_percentage, withdraw) {
+    const balance = this.getBalance(accountId);
+    const percentage_own = this.getModelPercentage(accountId, model_name);
+    const newBalance = balance + withdraw * BigInt(amount);
+    const newOwn = percentage_own + Number(withdraw) * model_percentage;
     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
-    Assertions.isLeftGreaterThanRight(newBalance, -1, "The account doesn't have enough balance");
-    Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
-    this.accounts.set(accountId, newBalance);
+    if (withdraw == BigInt(-1)) {
+      Assertions.isLeftGreaterThanRight(newBalance, -1, "The account doesn't have enough balance");
+      Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
+      Assertions.isLeftGreaterThanRight(newOwn, 0.0, "You can not lose more of a company");
+    }
+    this.getAccount(accountId).models.set(model_name, newOwn);
+    const newModels = this.getAccount(accountId).models;
+    const newAccount = new Account(newBalance, newModels);
+    this.setAccount(accountId, newAccount);
     this.totalSupply = newSupply;
   }
-  internalTransfer(senderId, receiverId, amount, _memo = null) {
+  internalTransfer(senderId, receiverId, model_name, amount, model_percentage) {
     assert(senderId != receiverId, "Sender and receiver should be different");
     Assertions.isLeftGreaterThanRight(amount, 0);
-    this.internalWithdraw(senderId, amount);
-    this.internalDeposit(receiverId, amount);
+    this.internalTransaction(senderId, model_name, amount, model_percentage, BigInt(-1));
+    this.internalTransaction(receiverId, model_name, amount, model_percentage, BigInt(1));
   }
-  storage_deposit({
-    account_id
+  addModel({
+    accountId,
+    modelName
   }) {
-    const accountId = account_id || predecessorAccountId();
+    const account_id = accountId || predecessorAccountId();
     validateAccountId(accountId);
-    const attachedDeposit$1 = attachedDeposit();
-    if (this.accounts.containsKey(accountId)) {
-      if (attachedDeposit$1 > 0) {
-        this.internalSendNEAR(predecessorAccountId(), attachedDeposit$1);
-        return {
-          message: "Account is already registered, deposit refunded to predecessor"
-        };
-      }
-      return {
-        message: "Account is already registered"
-      };
-    }
-    const storageCost = this.internalGetAccountStorageUsage(accountId.length);
-    if (attachedDeposit$1 < storageCost) {
-      this.internalSendNEAR(predecessorAccountId(), attachedDeposit$1);
-      return {
-        message: `Not enough attached deposit to cover storage cost. Required: ${storageCost.toString()}`
-      };
-    }
-    this.internalRegisterAccount({
-      registrantAccountId: predecessorAccountId(),
-      accountId: accountId,
-      amount: storageCost.toString()
-    });
-    const refund = attachedDeposit$1 - storageCost;
-    if (refund > 0) {
-      log("Storage registration refunding " + refund + " yoctoNEAR to " + predecessorAccountId());
-      this.internalSendNEAR(predecessorAccountId(), refund);
-    }
-    return {
-      message: `Account ${accountId} registered with storage deposit of ${storageCost.toString()}`
-    };
+    const account = this.getAccount(accountId);
+    assert(account.models.containsKey(modelName), "Model existed");
+    account.models.set(modelName, Number(100));
+    const newModels = account.models;
+    const newAccount = new Account(this.getBalance(account_id), newModels);
+    this.setAccount(account_id, newAccount);
   }
-  ft_transfer({
+  useModel({
+    receiverId,
+    modelName,
+    amount
+  }) {
+    Assertions.hasAtLeastOneAttachedYocto();
+    const senderId = predecessorAccountId();
+    log("Transfer " + amount + " token from " + senderId + " to " + receiverId);
+    this.internalTransfer(senderId, receiverId, modelName, amount, Number(0));
+    this.sendNEAR(receiverId, amount);
+  }
+  transferStock({
     receiver_id,
+    model_name,
     amount,
-    memo
+    model_percentage
   }) {
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = predecessorAccountId();
     log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
-    this.internalTransfer(senderId, receiver_id, amount, memo);
+    this.internalTransfer(senderId, receiver_id, model_name, amount, model_percentage);
+    this.sendNEAR(receiver_id, amount);
   }
-  ft_transfer_call({
-    receiver_id,
-    amount,
-    memo,
-    msg
-  }) {
-    Assertions.hasAtLeastOneAttachedYocto();
-    const senderId = predecessorAccountId();
-    this.internalTransfer(senderId, receiver_id, amount, memo);
-    const promise = promiseBatchCreate(receiver_id);
-    const params = {
-      sender_id: senderId,
-      amount: amount,
-      msg: msg,
-      receiver_id: receiver_id
-    };
-    log("Transfer call " + amount + " token from " + senderId + " to " + receiver_id + " with message " + msg);
-    promiseBatchActionFunctionCall(promise, "ft_on_transfer", JSON.stringify(params), 0, 30000000000000);
-    return promiseReturn(promise);
-  }
-  ft_total_supply() {
+  getTotalSupply() {
     return this.totalSupply;
   }
-  ft_balance_of({
-    account_id
+  getBalanceOf({
+    accountId
   }) {
-    validateAccountId(account_id);
-    return this.internalGetBalance(account_id);
+    validateAccountId(accountId);
+    return this.getBalance(accountId);
   }
-}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "storage_deposit", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "storage_deposit"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "ft_transfer", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "ft_transfer"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "ft_transfer_call", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "ft_transfer_call"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "ft_total_supply", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "ft_total_supply"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "ft_balance_of", [_dec7], Object.getOwnPropertyDescriptor(_class2.prototype, "ft_balance_of"), _class2.prototype)), _class2)) || _class);
-function ft_balance_of() {
-  const _state = FungibleToken._getState();
-  if (!_state && FungibleToken._requireInit()) {
+  getModelsOf({
+    accountId
+  }) {
+    validateAccountId(accountId);
+    return this.getAccount(accountId).models;
+  }
+}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "addModel", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "addModel"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "useModel", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "useModel"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "transferStock", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "transferStock"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getTotalSupply", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "getTotalSupply"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getBalanceOf", [_dec7], Object.getOwnPropertyDescriptor(_class2.prototype, "getBalanceOf"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getModelsOf", [_dec8], Object.getOwnPropertyDescriptor(_class2.prototype, "getModelsOf"), _class2.prototype)), _class2)) || _class);
+function getModelsOf() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = FungibleToken._create();
+  const _contract = NeuroToken._create();
   if (_state) {
-    FungibleToken._reconstruct(_contract, _state);
+    NeuroToken._reconstruct(_contract, _state);
   }
-  const _args = FungibleToken._getArgs();
-  const _result = _contract.ft_balance_of(_args);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.getModelsOf(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function ft_total_supply() {
-  const _state = FungibleToken._getState();
-  if (!_state && FungibleToken._requireInit()) {
+function getBalanceOf() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = FungibleToken._create();
+  const _contract = NeuroToken._create();
   if (_state) {
-    FungibleToken._reconstruct(_contract, _state);
+    NeuroToken._reconstruct(_contract, _state);
   }
-  const _args = FungibleToken._getArgs();
-  const _result = _contract.ft_total_supply(_args);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.getBalanceOf(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function ft_transfer_call() {
-  const _state = FungibleToken._getState();
-  if (!_state && FungibleToken._requireInit()) {
+function getTotalSupply() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = FungibleToken._create();
+  const _contract = NeuroToken._create();
   if (_state) {
-    FungibleToken._reconstruct(_contract, _state);
+    NeuroToken._reconstruct(_contract, _state);
   }
-  const _args = FungibleToken._getArgs();
-  const _result = _contract.ft_transfer_call(_args);
-  FungibleToken._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.getTotalSupply(_args);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function ft_transfer() {
-  const _state = FungibleToken._getState();
-  if (!_state && FungibleToken._requireInit()) {
+function transferStock() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = FungibleToken._create();
+  const _contract = NeuroToken._create();
   if (_state) {
-    FungibleToken._reconstruct(_contract, _state);
+    NeuroToken._reconstruct(_contract, _state);
   }
-  const _args = FungibleToken._getArgs();
-  const _result = _contract.ft_transfer(_args);
-  FungibleToken._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.transferStock(_args);
+  NeuroToken._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function storage_deposit() {
-  const _state = FungibleToken._getState();
-  if (!_state && FungibleToken._requireInit()) {
+function useModel() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
   }
-  const _contract = FungibleToken._create();
+  const _contract = NeuroToken._create();
   if (_state) {
-    FungibleToken._reconstruct(_contract, _state);
+    NeuroToken._reconstruct(_contract, _state);
   }
-  const _args = FungibleToken._getArgs();
-  const _result = _contract.storage_deposit(_args);
-  FungibleToken._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.useModel(_args);
+  NeuroToken._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
+}
+function addModel() {
+  const _state = NeuroToken._getState();
+  if (!_state && NeuroToken._requireInit()) {
+    throw new Error("Contract must be initialized");
+  }
+  const _contract = NeuroToken._create();
+  if (_state) {
+    NeuroToken._reconstruct(_contract, _state);
+  }
+  const _args = NeuroToken._getArgs();
+  const _result = _contract.addModel(_args);
+  NeuroToken._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
 function init() {
-  const _state = FungibleToken._getState();
+  const _state = NeuroToken._getState();
   if (_state) {
     throw new Error("Contract already initialized");
   }
-  const _contract = FungibleToken._create();
-  const _args = FungibleToken._getArgs();
+  const _contract = NeuroToken._create();
+  const _args = NeuroToken._getArgs();
   const _result = _contract.init(_args);
-  FungibleToken._saveToStorage(_contract);
-  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(FungibleToken._serialize(_result, true));
+  NeuroToken._saveToStorage(_contract);
+  if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
 class Assertions {
   static hasAtLeastOneAttachedYocto() {
@@ -849,5 +753,5 @@ class Assertions {
   }
 }
 
-export { FungibleToken, ft_balance_of, ft_total_supply, ft_transfer, ft_transfer_call, init, storage_deposit };
+export { NeuroToken, addModel, getBalanceOf, getModelsOf, getTotalSupply, init, transferStock, useModel };
 //# sourceMappingURL=neurocoin.js.map

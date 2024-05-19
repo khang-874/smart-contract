@@ -125,31 +125,27 @@ export class NeuroToken{
     this.internalTransaction(receiverId, model_name, amount, model_percentage, BigInt(1));
   }
 
-  @call({payableFunction:true})
-  publishModel({account_id, name, amount} : {account_id:string, name:string, amount:number}){
-    // const accountId = account_id || near.predecessorAccountId();
-    // validateAccountId(accountId);
-    // const attachedDeposit = near.attachedDeposit();
+  @call({})
+  addModel({accountId, modelName} : {accountId:string, modelName:string}){ 
+    const account_id = accountId || near.predecessorAccountId();
+    validateAccountId(accountId); 
 
-    // if (this.accounts.containsKey(accountId)) {
-    //   if (attachedDeposit > 0) {
-    //     this.internalSendNEAR(near.predecessorAccountId(), attachedDeposit);
-    //     return {
-    //       message:
-    //         "Account is already registered, deposit refunded to predecessor",
-    //     };
-    //   }
-    //   return { message: "Account is already registered" };
-    // }
+    const account = this.getAccount(accountId);
+    assert(account.models.containsKey(modelName), "Model existed");
+    account.models.set(modelName, Number(100));
+    const newModels = account.models;
+
+    const newAccount = new Account(this.getBalance(account_id), newModels);
+    this.setAccount(account_id, newAccount);
   }
   @call({payableFunction:true})
-  useModel({receiver_id, model_name, amount} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
+  useModel({receiverId, modelName, amount} : {receiverId:string, modelName:string, amount:bigint}){
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = near.predecessorAccountId();
-    near.log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
+    near.log("Transfer " + amount + " token from " + senderId + " to " + receiverId);
     
-    this.internalTransfer(senderId, receiver_id, model_name, amount, Number(0));
-    this.sendNEAR(receiver_id, amount); 
+    this.internalTransfer(senderId, receiverId, modelName, amount, Number(0));
+    this.sendNEAR(receiverId, amount); 
     
   }
   @call({payableFunction:true})
@@ -163,165 +159,32 @@ export class NeuroToken{
   }
 
   @view({})
-  get_total_supply(){
+  getTotalSupply(){
     return this.totalSupply;
+  }
+  @view({})
+  getBalanceOf({accountId} : {accountId:string}){
+    validateAccountId(accountId);
+    return this.getBalance(accountId);
+  }
+  @view({})
+  getModelsOf({accountId} : {accountId : string}){
+    validateAccountId(accountId);
+    return this.getAccount(accountId).models;
   }
 }
 
-//////////////////////
-// @NearBindgen({ requireInit: true })
-// export class FungibleToken {
-//   accounts: LookupMap<bigint>;
-//   accountRegistrants: LookupMap<string>;
-//   accountDeposits: LookupMap<bigint>;
-//   totalSupply: bigint;
-
-//   constructor() {
-//     this.accounts = new LookupMap("a");
-//     this.accountRegistrants = new LookupMap("r");
-//     this.accountDeposits = new LookupMap("d");
-//     this.totalSupply = BigInt("0");
-//   }
-
-//   @initialize({})
-//   init({ owner_id, total_supply }: { owner_id: string; total_supply: string }) {
-//     Assertions.isLeftGreaterThanRight(total_supply, 0);
-//     validateAccountId(owner_id);
-//     this.totalSupply = BigInt(total_supply);
-//     this.accounts.set(owner_id, this.totalSupply);
-//   }
-
-//   internalGetAccountStorageUsage(accountLength: number): bigint {
-//     const initialStorageUsage = near.storageUsage();
-//     const tempAccountId = "a".repeat(64);
-//     this.accounts.set(tempAccountId, BigInt("0"));
-//     const len64StorageUsage = near.storageUsage() - initialStorageUsage;
-//     const len1StorageUsage = len64StorageUsage / BigInt(64);
-//     const lenAccountStorageUsage = len1StorageUsage * BigInt(accountLength);
-//     this.accounts.remove(tempAccountId);
-//     return lenAccountStorageUsage * BigInt(3); // we create an entry in 3 maps
-//   }
-
-//   internalRegisterAccount({
-//     registrantAccountId,
-//     accountId,
-//     amount,
-//   }: {
-//     registrantAccountId: string;
-//     accountId: string;
-//     amount: string;
-//   }) {
-//     assert(
-//       !this.accounts.containsKey(accountId),
-//       "Account is already registered"
-//     );
-//     this.accounts.set(accountId, BigInt("0"));
-//     this.accountRegistrants.set(accountId, registrantAccountId);
-//     this.accountDeposits.set(accountId, BigInt(amount));
-//   }
-
-//   internalSendNEAR(receivingAccountId: string, amount: bigint) {
-//     Assertions.isLeftGreaterThanRight(amount, 0);
-//     Assertions.isLeftGreaterThanRight(
-//       near.accountBalance(),
-//       amount,
-//       `Not enough balance ${near.accountBalance()} to send ${amount}`
-//     );
-//     const promise = near.promiseBatchCreate(receivingAccountId);
-//     near.promiseBatchActionTransfer(promise, amount);
-//     near.promiseReturn(promise);
-//   }
-
-//   internalGetBalance(accountId: string): string {
-//     assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
-//     return this.accounts.get(accountId).toString();
-//   }
-
-//   internalDeposit(accountId: string, amount: string) {
-//     const balance = this.internalGetBalance(accountId);
-//     const newBalance = BigInt(balance) + BigInt(amount);
-//     this.accounts.set(accountId, newBalance);
-//     const newSupply = BigInt(this.totalSupply) + BigInt(amount);
-//     this.totalSupply = newSupply;
-//   }
-
-//   internalWithdraw(accountId: string, amount: string) {
-//     const balance = this.internalGetBalance(accountId);
-//     const newBalance = BigInt(balance) - BigInt(amount);
-//     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
-//     Assertions.isLeftGreaterThanRight(
-//       newBalance,
-//       -1,
-//       "The account doesn't have enough balance"
-//     );
-//     Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
-//     this.accounts.set(accountId, newBalance);
-//     this.totalSupply = newSupply;
-//   }
-
-//   internalTransfer(
-//     senderId: string,
-//     receiverId: string,
-//     amount: string,
-//     _memo: string = null
-//   ) {
-//     assert(senderId != receiverId, "Sender and receiver should be different");
-//     Assertions.isLeftGreaterThanRight(amount, 0);
-//     this.internalWithdraw(senderId, amount);
-//     this.internalDeposit(receiverId, amount);
-//   }
-
-//   @call({ payableFunction: true })
-//   ft_transfer({receiver_id, model, amount}: {receiver_id: string, model:string, amount: string}) {
-//     Assertions.hasAtLeastOneAttachedYocto();
-//     const senderId = near.predecessorAccountId();
-//     near.log(
-//       "Transfer " + amount + " token from " + senderId + " to " + receiver_id
-//     );
-    
-//     this.internalTransfer(senderId, receiver_id, amount);
-    
-//     const promise = near.promiseBatchCreate(receiver_id);
-
-//     near.promiseBatchActionTransfer(promise, BigInt(amount));
-//     near.promiseReturn(promise);
-//   }
- 
-//   @view({})
-//   ft_total_supply() {
-//     return this.totalSupply;
-//   }
-
-//   @view({})
-//   ft_balance_of({ account_id }: { account_id: string }) {
-//     validateAccountId(account_id);
-//     return this.internalGetBalance(account_id);
-//   }
-// }
-
 class Assertions {
   static hasAtLeastOneAttachedYocto() {
-    assert(
-      near.attachedDeposit() > BigInt(1),
-      "Requires at least 1 yoctoNEAR to ensure signature"
-    );
+    assert(near.attachedDeposit() > BigInt(1),"Requires at least 1 yoctoNEAR to ensure signature");
   }
 
-  static isLeftGreaterThanRight(
-    left: string | bigint | number | boolean,
-    right: string | bigint | number | boolean,
-    message: string = null
-  ) {
-    const msg =
-      message || `Provided amount ${left} should be greater than ${right}`;
+  static isLeftGreaterThanRight(left: string | bigint | number | boolean, right: string | bigint | number | boolean,message: string = null) {
+    const msg = message || `Provided amount ${left} should be greater than ${right}`;
     assert(BigInt(left) > BigInt(right), msg);
   }
 
-  static isLeftSmallerThanRight(
-    left: string | bigint | number | boolean,
-    right: string | bigint | number | boolean,
-    message: string = null
-  ){
+  static isLeftSmallerThanRight(left: string | bigint | number | boolean, right: string | bigint | number | boolean, message: string = null){
     const msg = message || `Provided amount ${left} should be smaller than ${right}`
     assert(BigInt(left) < BigInt(right), msg);
   }

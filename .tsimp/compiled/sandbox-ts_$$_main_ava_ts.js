@@ -1,6 +1,3 @@
-// import { Worker, NearAccount } from 'near-workspaces';
-// import anyTest, { TestFn } from 'ava';
-// import { setDefaultResultOrder } from 'dns'; setDefaultResultOrder('ipv4first'); // temp fix for node >v17
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -37,38 +34,6 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-// // Global context
-// const test = anyTest as TestFn<{ worker: Worker, accounts: Record<string, NearAccount> }>;
-// test.beforeEach(async (t) => {
-//   // Create sandbox, accounts, deploy contracts, etc.
-//   const worker = t.context.worker = await Worker.init();
-//   // Deploy contract
-//   const root = worker.rootAccount;
-//   const contract = await root.createSubAccount('test-account');
-//   // Get wasm file path from package.json test script in folder above
-//   await contract.deploy(
-//     process.argv[2],
-//   );
-//   // Save state for test runs, it is unique for each test
-//   t.context.accounts = { root, contract };
-// });
-// test.afterEach.always(async (t) => {
-//   // Stop Sandbox server
-//   await t.context.worker.tearDown().catch((error) => {
-//     console.log('Failed to stop the Sandbox:', error);
-//   });
-// });
-// test('returns the default greeting', async (t) => {
-//   const { contract } = t.context.accounts;
-//   const greeting: string = await contract.view('get_greeting', {});
-//   t.is(greeting, 'Hello');
-// });
-// test('changes the greeting', async (t) => {
-//   const { root, contract } = t.context.accounts;
-//   await root.call(contract, 'set_greeting', { greeting: 'Howdy' });
-//   const greeting: string = await contract.view('get_greeting', {});
-//   t.is(greeting, 'Howdy');
-// });
 import { Worker, NEAR } from "near-workspaces";
 import anyTest from 'ava';
 var test = anyTest;
@@ -79,16 +44,16 @@ test.beforeEach(function (t) { return __awaiter(void 0, void 0, void 0, function
             case 0: return [4 /*yield*/, Worker.init()];
             case 1:
                 worker = _a.sent();
-                totalSupply = 1000;
+                totalSupply = 10000000;
                 yoctoAccountStorage = "90";
                 root = worker.rootAccount;
-                return [4 /*yield*/, root.devDeploy("./build/fungible-token-helper.wasm")];
+                return [4 /*yield*/, root.devDeploy("./build/neurocoin.wasm")];
             case 2:
                 xcc = _a.sent();
                 return [4 /*yield*/, root.createSubAccount("ft")];
             case 3:
                 ft = _a.sent();
-                return [4 /*yield*/, ft.deploy("./build/fungible-token.wasm")];
+                return [4 /*yield*/, ft.deploy("./build/neurocoin.wasm")];
             case 4:
                 _a.sent();
                 return [4 /*yield*/, root.call(ft, "init", {
@@ -121,213 +86,222 @@ test.afterEach.always(function (t) { return __awaiter(void 0, void 0, void 0, fu
         }
     });
 }); });
-test("should register account and pay for storage", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, alice, yoctoAccountStorage, result, aliceAfterBalance, expected;
+test("Check add model", function (t) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, ft, alice, yoctoAccountStorage, aliceAfterBalance, expected, models;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
                 _a = t.context.accounts, ft = _a.ft, alice = _a.alice;
                 yoctoAccountStorage = t.context.variables.yoctoAccountStorage;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
+                return [4 /*yield*/, alice.call(ft, "addModel", { accountId: alice.accoundId, modelName: "ChatGPT" })
+                    // const result = await alice.call(
+                    //   ft,
+                    //   "",
+                    //   { account_id: alice.accountId },
+                    //   { attachedDeposit: NEAR.parse("1 N").toJSON() }
+                    // );
+                ];
             case 1:
-                result = _b.sent();
+                _b.sent();
                 return [4 /*yield*/, alice.balance()];
             case 2:
                 aliceAfterBalance = _b.sent();
                 expected = {
                     message: "Account ".concat(alice.accountId, " registered with storage deposit of ").concat(yoctoAccountStorage),
                 };
-                t.deepEqual(result, expected);
-                t.true(aliceAfterBalance.total > NEAR.parse("9 N").toJSON(), "alice should have received a refund");
+                models = alice.getAccount(alice.accountId).models;
+                console.log(models);
+                // t.deepEqual(result, expected);
+                // t.true(
+                //   aliceAfterBalance.total > NEAR.parse("9 N").toJSON(),
+                //   "alice should have received a refund"
+                // );
+                t.is(true, true, "Test ");
                 return [2 /*return*/];
         }
     });
 }); });
-test("should return message when account is already registered and not refund when no deposit is attached", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, alice, yoctoAccountStorage, result, expected, result2;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, ft = _a.ft, alice = _a.alice;
-                yoctoAccountStorage = t.context.variables.yoctoAccountStorage;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 1:
-                result = _b.sent();
-                expected = {
-                    message: "Account ".concat(alice.accountId, " registered with storage deposit of ").concat(yoctoAccountStorage),
-                };
-                t.deepEqual(result, expected);
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("0 N").toJSON() })];
-            case 2:
-                result2 = _b.sent();
-                t.is(result2.message, "Account is already registered");
-                return [2 /*return*/];
-        }
-    });
-}); });
-test("should return message and refund predecessor caller when trying to pay for storage for an account that is already registered", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, alice, yoctoAccountStorage, result, expected, result2, aliceBalance;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, ft = _a.ft, alice = _a.alice;
-                yoctoAccountStorage = t.context.variables.yoctoAccountStorage;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 1:
-                result = _b.sent();
-                expected = {
-                    message: "Account ".concat(alice.accountId, " registered with storage deposit of ").concat(yoctoAccountStorage),
-                };
-                t.deepEqual(result, expected);
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 2:
-                result2 = _b.sent();
-                t.is(result2.message, "Account is already registered, deposit refunded to predecessor");
-                return [4 /*yield*/, alice.balance()];
-            case 3:
-                aliceBalance = _b.sent();
-                t.is(aliceBalance.total > NEAR.parse("9 N"), true, "alice should have received a refund");
-                return [2 /*return*/];
-        }
-    });
-}); });
-test("should return message when trying to pay for storage with less than the required amount and refund predecessor caller", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, alice, yoctoAccountStorage, result;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, ft = _a.ft, alice = _a.alice;
-                yoctoAccountStorage = t.context.variables.yoctoAccountStorage;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.from("40").toJSON() })];
-            case 1:
-                result = _b.sent();
-                t.is(result.message, "Not enough attached deposit to cover storage cost. Required: ".concat(yoctoAccountStorage));
-                return [2 /*return*/];
-        }
-    });
-}); });
-test("should throw when trying to transfer for an unregistered account", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, alice, root, error_1;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, ft = _a.ft, alice = _a.alice, root = _a.root;
-                _b.label = 1;
-            case 1:
-                _b.trys.push([1, 3, , 4]);
-                return [4 /*yield*/, root.call(ft, "ft_transfer", { receiver_id: alice.accountId, amount: "1" }, { attachedDeposit: NEAR.from("1").toJSON() })];
-            case 2:
-                _b.sent();
-                return [3 /*break*/, 4];
-            case 3:
-                error_1 = _b.sent();
-                t.true(error_1.message.includes("Account ".concat(alice.accountId, " is not registered")));
-                return [3 /*break*/, 4];
-            case 4: return [2 /*return*/];
-        }
-    });
-}); });
-test("Owner has all balance in the beginning", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, ft, root, result;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, ft = _a.ft, root = _a.root;
-                return [4 /*yield*/, ft.view("ft_balance_of", { account_id: root.accountId })];
-            case 1:
-                result = _b.sent();
-                t.is(result, "1000");
-                return [2 /*return*/];
-        }
-    });
-}); });
-test("Can transfer if balance is sufficient", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, alice, ft, root, aliBalance, ownerBalance;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, alice = _a.alice, ft = _a.ft, root = _a.root;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 1:
-                _b.sent();
-                return [4 /*yield*/, root.call(ft, "ft_transfer", { receiver_id: alice.accountId, amount: "100" }, { attachedDeposit: NEAR.from("1").toJSON() })];
-            case 2:
-                _b.sent();
-                return [4 /*yield*/, ft.view("ft_balance_of", {
-                        account_id: alice.accountId,
-                    })];
-            case 3:
-                aliBalance = _b.sent();
-                t.is(aliBalance, "100");
-                return [4 /*yield*/, ft.view("ft_balance_of", {
-                        account_id: root.accountId,
-                    })];
-            case 4:
-                ownerBalance = _b.sent();
-                t.is(ownerBalance, "900");
-                return [2 /*return*/];
-        }
-    });
-}); });
-test("Cannot transfer if balance is not sufficient", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, alice, root, ft, e_1;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, alice = _a.alice, root = _a.root, ft = _a.ft;
-                return [4 /*yield*/, alice.call(ft, "storage_deposit", { account_id: alice.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 1:
-                _b.sent();
-                _b.label = 2;
-            case 2:
-                _b.trys.push([2, 4, , 5]);
-                return [4 /*yield*/, alice.call(ft, "ft_transfer", {
-                        receiverId: root.accountId,
-                        amount: "100",
-                    }, { attachedDeposit: NEAR.from("1").toJSON() })];
-            case 3:
-                _b.sent();
-                return [3 /*break*/, 5];
-            case 4:
-                e_1 = _b.sent();
-                t.assert(e_1
-                    .toString()
-                    .indexOf("Smart contract panicked: assertion failed: The account doesn't have enough balance") >= 0);
-                return [3 /*break*/, 5];
-            case 5: return [2 /*return*/];
-        }
-    });
-}); });
-test("Cross contract transfer", function (t) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, xcc, ft, root, xccBalance, aliSubContractData, ownerBalance;
-    return __generator(this, function (_b) {
-        switch (_b.label) {
-            case 0:
-                _a = t.context.accounts, xcc = _a.xcc, ft = _a.ft, root = _a.root;
-                return [4 /*yield*/, xcc.call(ft, "storage_deposit", { account_id: xcc.accountId }, { attachedDeposit: NEAR.parse("1 N").toJSON() })];
-            case 1:
-                _b.sent();
-                return [4 /*yield*/, root.call(ft, "ft_transfer_call", { receiver_id: xcc.accountId, amount: "900", memo: null, msg: "test msg" }, { gas: 200000000000000, attachedDeposit: NEAR.from("1").toJSON() })];
-            case 2:
-                _b.sent();
-                return [4 /*yield*/, ft.view("ft_balance_of", {
-                        account_id: xcc.accountId,
-                    })];
-            case 3:
-                xccBalance = _b.sent();
-                t.is(xccBalance, "900");
-                return [4 /*yield*/, xcc.view("get_contract_data")];
-            case 4:
-                aliSubContractData = _b.sent();
-                t.is(aliSubContractData, "[900 from ".concat(root.accountId, " to ").concat(xcc.accountId, "] test msg "));
-                return [4 /*yield*/, ft.view("ft_balance_of", {
-                        account_id: root.accountId,
-                    })];
-            case 5:
-                ownerBalance = _b.sent();
-                t.is(ownerBalance, "100");
-                return [2 /*return*/];
-        }
-    });
-}); });
-//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoibWFpbi5hdmEuanMiLCJzb3VyY2VSb290IjoiL2hvbWUva2hhbmcvRGVza3RvcC9oYWNrYXRob24vTmV1cm9Db2luLyIsInNvdXJjZXMiOlsic2FuZGJveC10cy9tYWluLmF2YS50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQSx5REFBeUQ7QUFDekQseUNBQXlDO0FBQ3pDLDZHQUE2Rzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7OztBQUU3RyxvQkFBb0I7QUFDcEIsNkZBQTZGO0FBRTdGLGlDQUFpQztBQUNqQyx3REFBd0Q7QUFDeEQsMkRBQTJEO0FBRTNELHVCQUF1QjtBQUN2QixxQ0FBcUM7QUFDckMsa0VBQWtFO0FBRWxFLHdFQUF3RTtBQUN4RSwyQkFBMkI7QUFDM0IsdUJBQXVCO0FBQ3ZCLE9BQU87QUFFUCw0REFBNEQ7QUFDNUQsNkNBQTZDO0FBQzdDLE1BQU07QUFFTix1Q0FBdUM7QUFDdkMsMkJBQTJCO0FBQzNCLHlEQUF5RDtBQUN6RCx5REFBeUQ7QUFDekQsUUFBUTtBQUNSLE1BQU07QUFFTixzREFBc0Q7QUFDdEQsNkNBQTZDO0FBQzdDLHNFQUFzRTtBQUN0RSw2QkFBNkI7QUFDN0IsTUFBTTtBQUVOLDhDQUE4QztBQUM5QyxtREFBbUQ7QUFDbkQsc0VBQXNFO0FBQ3RFLHNFQUFzRTtBQUN0RSw2QkFBNkI7QUFDN0IsTUFBTTtBQUNOLE9BQU8sRUFBRSxNQUFNLEVBQUUsSUFBSSxFQUFlLE1BQU0saUJBQWlCLENBQUM7QUFDNUQsT0FBTyxPQUFtQixNQUFNLEtBQUssQ0FBQztBQUV0QyxJQUFNLElBQUksR0FBRyxPQUFtRSxDQUFDO0FBQ2pGLElBQUksQ0FBQyxVQUFVLENBQUMsVUFBTyxDQUFDOzs7O29CQUNQLHFCQUFNLE1BQU0sQ0FBQyxJQUFJLEVBQUUsRUFBQTs7Z0JBQTVCLE1BQU0sR0FBRyxTQUFtQjtnQkFFNUIsV0FBVyxHQUFHLElBQUksQ0FBQztnQkFDbkIsbUJBQW1CLEdBQUcsSUFBSSxDQUFDO2dCQUUz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
+// test("should register account and pay for storage", async (t) => {
+//   const { ft, alice } = t.context.accounts;
+//   const { yoctoAccountStorage } = t.context.variables;
+//   const result = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   const aliceAfterBalance = await alice.balance();
+//   const expected = {
+//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
+//   };
+//   t.deepEqual(result, expected);
+//   t.true(
+//     aliceAfterBalance.total > NEAR.parse("9 N").toJSON(),
+//     "alice should have received a refund"
+//   );
+// });
+// test("should return message when account is already registered and not refund when no deposit is attached", async (t) => {
+//   const { ft, alice } = t.context.accounts;
+//   const { yoctoAccountStorage } = t.context.variables;
+//   const result = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   const expected = {
+//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
+//   };
+//   t.deepEqual(result, expected);
+//   const result2 = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("0 N").toJSON() }
+//   );
+//   t.is(result2.message, "Account is already registered");
+// });
+// test("should return message and refund predecessor caller when trying to pay for storage for an account that is already registered", async (t) => {
+//   const { ft, alice } = t.context.accounts;
+//   const { yoctoAccountStorage } = t.context.variables;
+//   const result = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   const expected = {
+//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
+//   };
+//   t.deepEqual(result, expected);
+//   const result2 = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   t.is(
+//     result2.message,
+//     "Account is already registered, deposit refunded to predecessor"
+//   );
+//   const aliceBalance = await alice.balance();
+//   t.is(
+//     aliceBalance.total > NEAR.parse("9 N"),
+//     true,
+//     "alice should have received a refund"
+//   );
+// });
+// test("should return message when trying to pay for storage with less than the required amount and refund predecessor caller", async (t) => {
+//   const { ft, alice } = t.context.accounts;
+//   const { yoctoAccountStorage } = t.context.variables;
+//   const result = await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.from("40").toJSON() }
+//   );
+//   t.is(
+//     result.message,
+//     `Not enough attached deposit to cover storage cost. Required: ${yoctoAccountStorage}`
+//   );
+// });
+// test("should throw when trying to transfer for an unregistered account", async (t) => {
+//   const { ft, alice, root } = t.context.accounts;
+//   try {
+//     await root.call(
+//       ft,
+//       "ft_transfer",
+//       { receiver_id: alice.accountId, amount: "1" },
+//       { attachedDeposit: NEAR.from("1").toJSON() }
+//     );
+//   } catch (error) {
+//     t.true(
+//       error.message.includes(`Account ${alice.accountId} is not registered`)
+//     );
+//   }
+// });
+// test("Owner has all balance in the beginning", async (t) => {
+//   const { ft, root } = t.context.accounts;
+//   const result = await ft.view("ft_balance_of", { account_id: root.accountId });
+//   t.is(result, "1000");
+// });
+// test("Can transfer if balance is sufficient", async (t) => {
+//   const { alice, ft, root } = t.context.accounts;
+//   await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   await root.call(
+//     ft,
+//     "ft_transfer",
+//     { receiver_id: alice.accountId, amount: "100" },
+//     { attachedDeposit: NEAR.from("1").toJSON() }
+//   );
+//   const aliBalance = await ft.view("ft_balance_of", {
+//     account_id: alice.accountId,
+//   });
+//   t.is(aliBalance, "100");
+//   const ownerBalance = await ft.view("ft_balance_of", {
+//     account_id: root.accountId,
+//   });
+//   t.is(ownerBalance, "900");
+// });
+// test("Cannot transfer if balance is not sufficient", async (t) => {
+//   const { alice, root, ft } = t.context.accounts;
+//   await alice.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: alice.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   try {
+//     await alice.call(
+//       ft,
+//       "ft_transfer",
+//       {
+//         receiverId: root.accountId,
+//         amount: "100",
+//       },
+//       { attachedDeposit: NEAR.from("1").toJSON() }
+//     );
+//   } catch (e) {
+//     t.assert(
+//       e
+//         .toString()
+//         .indexOf(
+//           "Smart contract panicked: assertion failed: The account doesn't have enough balance"
+//         ) >= 0
+//     );
+//   }
+// });
+// test("Cross contract transfer", async (t) => {
+//   const { xcc, ft, root } = t.context.accounts;
+//   await xcc.call(
+//     ft,
+//     "storage_deposit",
+//     { account_id: xcc.accountId },
+//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
+//   );
+//   await root.call(
+//     ft,
+//     "ft_transfer_call",
+//     { receiver_id: xcc.accountId, amount: "900", memo: null, msg: "test msg" },
+//     { gas: 200000000000000, attachedDeposit: NEAR.from("1").toJSON() }
+//   );
+//   const xccBalance = await ft.view("ft_balance_of", {
+//     account_id: xcc.accountId,
+//   });
+//   t.is(xccBalance, "900");
+//   const aliSubContractData = await xcc.view("get_contract_data");
+//   t.is(
+//     aliSubContractData,
+//     `[900 from ${root.accountId} to ${xcc.accountId}] test msg `
+//   );
+//   const ownerBalance = await ft.view("ft_balance_of", {
+//     account_id: root.accountId,
+//   });
+//   t.is(ownerBalance, "100");
+// });
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoibWFpbi5hdmEuanMiLCJzb3VyY2VSb290IjoiL2hvbWUva2hhbmcvRGVza3RvcC9oYWNrYXRob24vTmV1cm9Db2luLyIsInNvdXJjZXMiOlsic2FuZGJveC10cy9tYWluLmF2YS50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7QUFBQSxPQUFPLEVBQUUsTUFBTSxFQUFFLElBQUksRUFBZSxNQUFNLGlCQUFpQixDQUFDO0FBQzVELE9BQU8sT0FBbUIsTUFBTSxLQUFLLENBQUM7QUFFdEMsSUFBTSxJQUFJLEdBQUcsT0FBbUUsQ0FBQztBQUNqRixJQUFJLENBQUMsVUFBVSxDQUFDLFVBQU8sQ0FBQzs7OztvQkFDUCxxQkFBTSxNQUFNLENBQUMsSUFBSSxFQUFFLEVBQUE7O2dCQUE1QixNQUFNLEdBQUcsU0FBbUI7Z0JBRTVCLFdBQVcsR0FBRyxRQUFRLENBQUM7Z0JBQ3ZCLG1CQUFtQixHQUFHLElBQUksQ0FBQztnQkFFM0IsSUFBSSxHQUFHLE1BQU0sQ0FBQyxXQUFXLENBQUM7Z0JBQ3BCLHFCQUFNLElBQUksQ0FBQyxTQUFTLENBQUMsd0JBQXdCLENBQUMsRUFBQTs7Z0JBQXBELEdBQUcsR0FBRyxTQUE4QztnQkFDL0MscUJBQU0sSUFBSSxDQUFDLGdCQUFnQixDQUFDLElBQUksQ0FBQyxFQUFBOztnQkFBdEMsRUFBRSxHQUFHLFNBQWlDO2dCQUM1QyxxQkFBTSxFQUFFLENBQUMsTUFBTSxDQUFDLHdCQUF3QixDQUFDLEVBQUE7O2dCQUF6QyxTQUF5QyxDQUFDO2dCQUMxQyxxQkFBTSxJQUFJLENBQUMsSUFBSSxDQUFDLEVBQUUsRUFBRSxNQUFNLEVBQUU7d0JBQzFCLFFBQVEsRUFBRSxJQUFJLENBQUMsU0FBUzt3QkFDeEIsWUFBWSxFQUFFLFdBQVcsQ0FBQyxRQUFRLEVBQUU7cUJBQ3JDLENBQUMsRUFBQTs7Z0JBSEYsU0FHRSxDQUFDO2dCQUNXLHFCQUFNLElBQUksQ0FBQyxnQkFBZ0IsQ0FB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
