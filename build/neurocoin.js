@@ -33,6 +33,8 @@ var TypeBrand;
   TypeBrand["BIGINT"] = "bigint";
   TypeBrand["DATE"] = "date";
 })(TypeBrand || (TypeBrand = {}));
+const ERR_INCONSISTENT_STATE = "The collection is an inconsistent state. Did previous smart contract execution terminate unexpectedly?";
+const ERR_INDEX_OUT_OF_BOUNDS = "Index out of bounds";
 const ACCOUNT_ID_REGEX = /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
 /**
  * Asserts that the expression passed to the function is truthy, otherwise throws a new Error with the provided message.
@@ -413,6 +415,394 @@ class LookupMap {
   }
 }
 
+function indexToKey(prefix, index) {
+  const data = new Uint32Array([index]);
+  const array = new Uint8Array(data.buffer);
+  const key = str(array);
+  return prefix + key;
+}
+/**
+ * An iterable implementation of vector that stores its content on the trie.
+ * Uses the following map: index -> element
+ */
+class Vector {
+  /**
+   * @param prefix - The byte prefix to use when storing elements inside this collection.
+   * @param length - The initial length of the collection. By default 0.
+   */
+  constructor(prefix, length = 0) {
+    this.prefix = prefix;
+    this.length = length;
+  }
+  /**
+   * Checks whether the collection is empty.
+   */
+  isEmpty() {
+    return this.length === 0;
+  }
+  /**
+   * Get the data stored at the provided index.
+   *
+   * @param index - The index at which to look for the data.
+   * @param options - Options for retrieving the data.
+   */
+  get(index, options) {
+    if (index >= this.length) {
+      return options?.defaultValue ?? null;
+    }
+    const storageKey = indexToKey(this.prefix, index);
+    const value = storageReadRaw(bytes(storageKey));
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Removes an element from the vector and returns it in serialized form.
+   * The removed element is replaced by the last element of the vector.
+   * Does not preserve ordering, but is `O(1)`.
+   *
+   * @param index - The index at which to remove the element.
+   * @param options - Options for retrieving and storing the data.
+   */
+  swapRemove(index, options) {
+    assert(index < this.length, ERR_INDEX_OUT_OF_BOUNDS);
+    if (index + 1 === this.length) {
+      return this.pop(options);
+    }
+    const key = indexToKey(this.prefix, index);
+    const last = this.pop(options);
+    assert(storageWriteRaw(bytes(key), serializeValueWithOptions(last, options)), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvictedRaw();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Adds data to the collection.
+   *
+   * @param element - The data to store.
+   * @param options - Options for storing the data.
+   */
+  push(element, options) {
+    const key = indexToKey(this.prefix, this.length);
+    this.length += 1;
+    storageWriteRaw(bytes(key), serializeValueWithOptions(element, options));
+  }
+  /**
+   * Removes and retrieves the element with the highest index.
+   *
+   * @param options - Options for retrieving the data.
+   */
+  pop(options) {
+    if (this.isEmpty()) {
+      return options?.defaultValue ?? null;
+    }
+    const lastIndex = this.length - 1;
+    const lastKey = indexToKey(this.prefix, lastIndex);
+    this.length -= 1;
+    assert(storageRemoveRaw(bytes(lastKey)), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvictedRaw();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Replaces the data stored at the provided index with the provided data and returns the previously stored data.
+   *
+   * @param index - The index at which to replace the data.
+   * @param element - The data to replace with.
+   * @param options - Options for retrieving and storing the data.
+   */
+  replace(index, element, options) {
+    assert(index < this.length, ERR_INDEX_OUT_OF_BOUNDS);
+    const key = indexToKey(this.prefix, index);
+    assert(storageWriteRaw(bytes(key), serializeValueWithOptions(element, options)), ERR_INCONSISTENT_STATE);
+    const value = storageGetEvictedRaw();
+    return getValueWithOptions(value, options);
+  }
+  /**
+   * Extends the current collection with the passed in array of elements.
+   *
+   * @param elements - The elements to extend the collection with.
+   */
+  extend(elements) {
+    for (const element of elements) {
+      this.push(element);
+    }
+  }
+  [Symbol.iterator]() {
+    return new VectorIterator(this);
+  }
+  /**
+   * Create a iterator on top of the default collection iterator using custom options.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  createIteratorWithOptions(options) {
+    return {
+      [Symbol.iterator]: () => new VectorIterator(this, options)
+    };
+  }
+  /**
+   * Return a JavaScript array of the data stored within the collection.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  toArray(options) {
+    const array = [];
+    const iterator = options ? this.createIteratorWithOptions(options) : this;
+    for (const value of iterator) {
+      array.push(value);
+    }
+    return array;
+  }
+  /**
+   * Remove all of the elements stored within the collection.
+   */
+  clear() {
+    for (let index = 0; index < this.length; index++) {
+      const key = indexToKey(this.prefix, index);
+      storageRemoveRaw(bytes(key));
+    }
+    this.length = 0;
+  }
+  /**
+   * Serialize the collection.
+   *
+   * @param options - Options for storing the data.
+   */
+  serialize(options) {
+    return serializeValueWithOptions(this, options);
+  }
+  /**
+   * Converts the deserialized data from storage to a JavaScript instance of the collection.
+   *
+   * @param data - The deserialized data to create an instance from.
+   */
+  static reconstruct(data) {
+    const vector = new Vector(data.prefix, data.length);
+    return vector;
+  }
+}
+/**
+ * An iterator for the Vector collection.
+ */
+class VectorIterator {
+  /**
+   * @param vector - The vector collection to create an iterator for.
+   * @param options - Options for retrieving and storing data.
+   */
+  constructor(vector, options) {
+    this.vector = vector;
+    this.options = options;
+    this.current = 0;
+  }
+  next() {
+    if (this.current >= this.vector.length) {
+      return {
+        value: null,
+        done: true
+      };
+    }
+    const value = this.vector.get(this.current, this.options);
+    this.current += 1;
+    return {
+      value,
+      done: false
+    };
+  }
+}
+
+/**
+ * An unordered map that stores data in NEAR storage.
+ */
+class UnorderedMap {
+  /**
+   * @param prefix - The byte prefix to use when storing elements inside this collection.
+   */
+  constructor(prefix) {
+    this.prefix = prefix;
+    this._keys = new Vector(`${prefix}u`); // intentional different prefix with old UnorderedMap
+    this.values = new LookupMap(`${prefix}m`);
+  }
+  /**
+   * The number of elements stored in the collection.
+   */
+  get length() {
+    return this._keys.length;
+  }
+  /**
+   * Checks whether the collection is empty.
+   */
+  isEmpty() {
+    return this._keys.isEmpty();
+  }
+  /**
+   * Get the data stored at the provided key.
+   *
+   * @param key - The key at which to look for the data.
+   * @param options - Options for retrieving the data.
+   */
+  get(key, options) {
+    const valueAndIndex = this.values.get(key);
+    if (valueAndIndex === null) {
+      return options?.defaultValue ?? null;
+    }
+    const [value] = valueAndIndex;
+    return getValueWithOptions(encode(value), options);
+  }
+  /**
+   * Store a new value at the provided key.
+   *
+   * @param key - The key at which to store in the collection.
+   * @param value - The value to store in the collection.
+   * @param options - Options for retrieving and storing the data.
+   */
+  set(key, value, options) {
+    const valueAndIndex = this.values.get(key);
+    const serialized = serializeValueWithOptions(value, options);
+    if (valueAndIndex === null) {
+      const newElementIndex = this.length;
+      this._keys.push(key);
+      this.values.set(key, [decode(serialized), newElementIndex]);
+      return null;
+    }
+    const [oldValue, oldIndex] = valueAndIndex;
+    this.values.set(key, [decode(serialized), oldIndex]);
+    return getValueWithOptions(encode(oldValue), options);
+  }
+  /**
+   * Removes and retrieves the element with the provided key.
+   *
+   * @param key - The key at which to remove data.
+   * @param options - Options for retrieving the data.
+   */
+  remove(key, options) {
+    const oldValueAndIndex = this.values.remove(key);
+    if (oldValueAndIndex === null) {
+      return options?.defaultValue ?? null;
+    }
+    const [value, index] = oldValueAndIndex;
+    assert(this._keys.swapRemove(index) !== null, ERR_INCONSISTENT_STATE);
+    // the last key is swapped to key[index], the corresponding [value, index] need update
+    if (!this._keys.isEmpty() && index !== this._keys.length) {
+      // if there is still elements and it was not the last element
+      const swappedKey = this._keys.get(index);
+      const swappedValueAndIndex = this.values.get(swappedKey);
+      assert(swappedValueAndIndex !== null, ERR_INCONSISTENT_STATE);
+      this.values.set(swappedKey, [swappedValueAndIndex[0], index]);
+    }
+    return getValueWithOptions(encode(value), options);
+  }
+  /**
+   * Remove all of the elements stored within the collection.
+   */
+  clear() {
+    for (const key of this._keys) {
+      // Set instead of remove to avoid loading the value from storage.
+      this.values.set(key, null);
+    }
+    this._keys.clear();
+  }
+  [Symbol.iterator]() {
+    return new UnorderedMapIterator(this);
+  }
+  /**
+   * Create a iterator on top of the default collection iterator using custom options.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  createIteratorWithOptions(options) {
+    return {
+      [Symbol.iterator]: () => new UnorderedMapIterator(this, options)
+    };
+  }
+  /**
+   * Return a JavaScript array of the data stored within the collection.
+   *
+   * @param options - Options for retrieving and storing the data.
+   */
+  toArray(options) {
+    const array = [];
+    const iterator = options ? this.createIteratorWithOptions(options) : this;
+    for (const value of iterator) {
+      array.push(value);
+    }
+    return array;
+  }
+  /**
+   * Extends the current collection with the passed in array of key-value pairs.
+   *
+   * @param keyValuePairs - The key-value pairs to extend the collection with.
+   */
+  extend(keyValuePairs) {
+    for (const [key, value] of keyValuePairs) {
+      this.set(key, value);
+    }
+  }
+  /**
+   * Serialize the collection.
+   *
+   * @param options - Options for storing the data.
+   */
+  serialize(options) {
+    return serializeValueWithOptions(this, options);
+  }
+  /**
+   * Converts the deserialized data from storage to a JavaScript instance of the collection.
+   *
+   * @param data - The deserialized data to create an instance from.
+   */
+  static reconstruct(data) {
+    const map = new UnorderedMap(data.prefix);
+    // reconstruct keys Vector
+    map._keys = new Vector(`${data.prefix}u`);
+    map._keys.length = data._keys.length;
+    // reconstruct values LookupMap
+    map.values = new LookupMap(`${data.prefix}m`);
+    return map;
+  }
+  keys({
+    start,
+    limit
+  }) {
+    const ret = [];
+    if (start === undefined) {
+      start = 0;
+    }
+    if (limit == undefined) {
+      limit = this.length - start;
+    }
+    for (let i = start; i < start + limit; i++) {
+      ret.push(this._keys.get(i));
+    }
+    return ret;
+  }
+}
+/**
+ * An iterator for the UnorderedMap collection.
+ */
+class UnorderedMapIterator {
+  /**
+   * @param unorderedMap - The unordered map collection to create an iterator for.
+   * @param options - Options for retrieving and storing data.
+   */
+  constructor(unorderedMap, options) {
+    this.options = options;
+    this.keys = new VectorIterator(unorderedMap._keys);
+    this.map = unorderedMap.values;
+  }
+  next() {
+    const key = this.keys.next();
+    if (key.done) {
+      return {
+        value: [key.value, null],
+        done: key.done
+      };
+    }
+    const valueAndIndex = this.map.get(key.value);
+    assert(valueAndIndex !== null, ERR_INCONSISTENT_STATE);
+    return {
+      done: key.done,
+      value: [key.value, getValueWithOptions(encode(valueAndIndex[0]), this.options)]
+    };
+  }
+}
+
 /**
  * Tells the SDK to use this function as the initialization function of the contract.
  *
@@ -505,19 +895,18 @@ class Account {
     this.balance = BigInt('0');
     this.models = models;
   }
-  publishModel(name) {
-    this.models.set(name, 100.0);
+  get_balance() {
+    return this.balance;
   }
-  deleteModel(name) {
-    this.models.remove(name);
+  get_model(modelName) {
+    Assertions.isModelExist(modelName, this.models);
+    return this.models.get(modelName);
   }
-  buyModel(name, amount) {
-    this.models.set(name, amount);
+  set_model(modelName, percentage) {
+    return this.models.set(modelName, percentage);
   }
-  sellModel(name, amount) {
-    let current = this.models.get(name);
-    Assertions.isLeftGreaterThanRight(current, amount);
-    this.models.set(name, current - amount);
+  get_models() {
+    return this.models;
   }
 }
 let NeuroToken = (_dec = NearBindgen({
@@ -533,48 +922,53 @@ let NeuroToken = (_dec = NearBindgen({
 
   constructor() {
     this.totalSupply = BigInt("0");
-    this.accounts = new LookupMap("a");
-    this.models = new LookupMap("m");
+    this.accounts = new UnorderedMap("a");
+    this.models = new UnorderedMap("m");
   }
   init({
-    total_supply
+    totalSupply
   }) {
-    Assertions.isLeftGreaterThanRight(total_supply, 0);
-    this.totalSupply = BigInt(total_supply);
-    this.accounts = new LookupMap('a');
-    let ownerId = signerAccountId();
-    let ownerAccount = this.getAccount(ownerId);
-    this.accounts.set(ownerId, ownerAccount);
+    Assertions.isLeftGreaterThanRight(totalSupply, 0);
+    // validateAccountId(accountId);
+
+    this.totalSupply = BigInt(totalSupply);
+    this.accounts = new UnorderedMap('a');
+    let accountId = signerAccountId();
+    let ownerAccount = this.get_account(accountId);
+
+    //near.log("Create initial state with " + accountId + " and total supply"  + totalSupply);
+    this.accounts.set(accountId, ownerAccount);
   }
-  getAccount(ownerId) {
+  get_account(ownerId) {
     let account = this.accounts.get(ownerId);
     if (account === null) {
-      return new Account(BigInt('0'), new LookupMap(''));
+      return new Account(BigInt('0'), new UnorderedMap(''));
     }
     return new Account(account.balance, account.models);
   }
-  setAccount(accountId, account) {
+  set_account(accountId, account) {
     this.accounts.set(accountId, account);
   }
-  sendNEAR(receivingAccountId, amount) {
+  send_NEAR(receivingAccountId, amount) {
     Assertions.isLeftGreaterThanRight(amount, 0);
     Assertions.isLeftGreaterThanRight(accountBalance(), amount, `Not enough balance ${accountBalance()} to send ${amount}`);
     const promise = promiseBatchCreate(receivingAccountId);
     promiseBatchActionTransfer(promise, amount);
     promiseReturn(promise);
   }
-  getBalance(accountId) {
-    assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
-    return this.accounts.get(accountId).balance;
+  get_balance(accountId) {
+    assert(this.accounts.get(accountId) !== null, `Account ${accountId} is not registered`);
+    const account = this.accounts.get(accountId);
+    return account.get_balance();
   }
-  getModelPercentage(accountId, model_name) {
-    assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
-    assert(this.accounts.get(accountId).models.containsKey(model_name), `Account ${accountId} does not have the model ${model_name}`);
+  get_model_percentage(accountId, model_name) {
+    assert(this.accounts.get(accountId) !== null, `Account ${accountId} is not registered`);
+    assert(this.accounts.get(accountId).models.get(model_name) !== null, `Account ${accountId} does not have the model ${model_name}`);
     return this.accounts.get(accountId).models.get(model_name);
   }
   internalTransaction(accountId, model_name, amount, model_percentage, withdraw) {
-    const balance = this.getBalance(accountId);
-    const percentage_own = this.getModelPercentage(accountId, model_name);
+    const balance = this.get_balance(accountId);
+    const percentage_own = this.get_model_percentage(accountId, model_name);
     const newBalance = balance + withdraw * BigInt(amount);
     const newOwn = percentage_own + Number(withdraw) * model_percentage;
     const newSupply = BigInt(this.totalSupply) - BigInt(amount);
@@ -583,43 +977,43 @@ let NeuroToken = (_dec = NearBindgen({
       Assertions.isLeftGreaterThanRight(newSupply, -1, "Total supply overflow");
       Assertions.isLeftGreaterThanRight(newOwn, 0.0, "You can not lose more of a company");
     }
-    this.getAccount(accountId).models.set(model_name, newOwn);
-    const newModels = this.getAccount(accountId).models;
+    this.get_account(accountId).models.set(model_name, newOwn);
+    const newModels = this.get_account(accountId).models;
     const newAccount = new Account(newBalance, newModels);
-    this.setAccount(accountId, newAccount);
+    this.set_account(accountId, newAccount);
     this.totalSupply = newSupply;
   }
   internalTransfer(senderId, receiverId, model_name, amount, model_percentage) {
     assert(senderId != receiverId, "Sender and receiver should be different");
-    Assertions.isLeftGreaterThanRight(amount, 0);
+    Assertions.isLeftGreaterThanRight(amount, -1);
     this.internalTransaction(senderId, model_name, amount, model_percentage, BigInt(-1));
     this.internalTransaction(receiverId, model_name, amount, model_percentage, BigInt(1));
   }
-  addModel({
+  add_model({
     accountId,
     modelName
   }) {
     const account_id = accountId || predecessorAccountId();
     validateAccountId(accountId);
-    const account = this.getAccount(accountId);
-    assert(account.models.containsKey(modelName), "Model existed");
-    account.models.set(modelName, Number(100));
+    const account = this.get_account(accountId);
+    assert(account.models.get(modelName) !== null, "Model existed");
+    account.set_model(modelName, Number(100));
     const newModels = account.models;
-    const newAccount = new Account(this.getBalance(account_id), newModels);
-    this.setAccount(account_id, newAccount);
+    const newAccount = new Account(account.get_balance(), newModels);
+    this.set_account(account_id, newAccount);
   }
-  useModel({
+  use_model({
     receiverId,
     modelName,
     amount
   }) {
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = predecessorAccountId();
-    log("Transfer " + amount + " token from " + senderId + " to " + receiverId);
+    log("Transfer " + amount + " token from " + senderId + " to " + receiverId + " on using the model " + modelName);
     this.internalTransfer(senderId, receiverId, modelName, amount, Number(0));
-    this.sendNEAR(receiverId, amount);
+    this.send_NEAR(receiverId, amount);
   }
-  transferStock({
+  transfer_stock({
     receiver_id,
     model_name,
     amount,
@@ -629,25 +1023,25 @@ let NeuroToken = (_dec = NearBindgen({
     const senderId = predecessorAccountId();
     log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
     this.internalTransfer(senderId, receiver_id, model_name, amount, model_percentage);
-    this.sendNEAR(receiver_id, amount);
+    this.send_NEAR(receiver_id, amount);
   }
-  getTotalSupply() {
+  get_balance_of({
+    accountId
+  }) {
+    return this.get_balance(accountId);
+  }
+  get_models_of({
+    accountId
+  }) {
+    let models = this.get_account(accountId).get_models().toArray();
+    log("The models of " + accountId + " is: " + models);
+    return JSON.stringify(models);
+  }
+  get_total_supply() {
     return this.totalSupply;
   }
-  getBalanceOf({
-    accountId
-  }) {
-    validateAccountId(accountId);
-    return this.getBalance(accountId);
-  }
-  getModelsOf({
-    accountId
-  }) {
-    validateAccountId(accountId);
-    return this.getAccount(accountId).models;
-  }
-}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "addModel", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "addModel"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "useModel", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "useModel"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "transferStock", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "transferStock"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getTotalSupply", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "getTotalSupply"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getBalanceOf", [_dec7], Object.getOwnPropertyDescriptor(_class2.prototype, "getBalanceOf"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "getModelsOf", [_dec8], Object.getOwnPropertyDescriptor(_class2.prototype, "getModelsOf"), _class2.prototype)), _class2)) || _class);
-function getModelsOf() {
+}, (_applyDecoratedDescriptor(_class2.prototype, "init", [_dec2], Object.getOwnPropertyDescriptor(_class2.prototype, "init"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "add_model", [_dec3], Object.getOwnPropertyDescriptor(_class2.prototype, "add_model"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "use_model", [_dec4], Object.getOwnPropertyDescriptor(_class2.prototype, "use_model"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "transfer_stock", [_dec5], Object.getOwnPropertyDescriptor(_class2.prototype, "transfer_stock"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_balance_of", [_dec6], Object.getOwnPropertyDescriptor(_class2.prototype, "get_balance_of"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_models_of", [_dec7], Object.getOwnPropertyDescriptor(_class2.prototype, "get_models_of"), _class2.prototype), _applyDecoratedDescriptor(_class2.prototype, "get_total_supply", [_dec8], Object.getOwnPropertyDescriptor(_class2.prototype, "get_total_supply"), _class2.prototype)), _class2)) || _class);
+function get_total_supply() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -657,10 +1051,10 @@ function getModelsOf() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.getModelsOf(_args);
+  const _result = _contract.get_total_supply(_args);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function getBalanceOf() {
+function get_models_of() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -670,10 +1064,10 @@ function getBalanceOf() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.getBalanceOf(_args);
+  const _result = _contract.get_models_of(_args);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function getTotalSupply() {
+function get_balance_of() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -683,10 +1077,10 @@ function getTotalSupply() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.getTotalSupply(_args);
+  const _result = _contract.get_balance_of(_args);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function transferStock() {
+function transfer_stock() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -696,11 +1090,11 @@ function transferStock() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.transferStock(_args);
+  const _result = _contract.transfer_stock(_args);
   NeuroToken._saveToStorage(_contract);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function useModel() {
+function use_model() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -710,11 +1104,11 @@ function useModel() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.useModel(_args);
+  const _result = _contract.use_model(_args);
   NeuroToken._saveToStorage(_contract);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
-function addModel() {
+function add_model() {
   const _state = NeuroToken._getState();
   if (!_state && NeuroToken._requireInit()) {
     throw new Error("Contract must be initialized");
@@ -724,7 +1118,7 @@ function addModel() {
     NeuroToken._reconstruct(_contract, _state);
   }
   const _args = NeuroToken._getArgs();
-  const _result = _contract.addModel(_args);
+  const _result = _contract.add_model(_args);
   NeuroToken._saveToStorage(_contract);
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
@@ -740,6 +1134,9 @@ function init() {
   if (_result !== undefined) if (_result && _result.constructor && _result.constructor.name === "NearPromise") _result.onReturn();else env.value_return(NeuroToken._serialize(_result, true));
 }
 class Assertions {
+  static isModelExist(modelName, models) {
+    assert(models.get(modelName) !== null, "This model is not existed!");
+  }
   static hasAtLeastOneAttachedYocto() {
     assert(attachedDeposit() > BigInt(1), "Requires at least 1 yoctoNEAR to ensure signature");
   }
@@ -753,5 +1150,5 @@ class Assertions {
   }
 }
 
-export { NeuroToken, addModel, getBalanceOf, getModelsOf, getTotalSupply, init, transferStock, useModel };
+export { NeuroToken, add_model, get_balance_of, get_models_of, get_total_supply, init, transfer_stock, use_model };
 //# sourceMappingURL=neurocoin.js.map

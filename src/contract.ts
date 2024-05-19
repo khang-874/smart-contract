@@ -5,64 +5,65 @@ import {
   view,
   initialize,
   near,
-  LookupMap,
+  UnorderedMap,
   assert,
   validateAccountId,
 } from "near-sdk-js";
 class Account{
   balance: bigint;
-  models: LookupMap<number>;
+  models: UnorderedMap<number>;
 
-  constructor(balance:bigint, models: LookupMap<number>){
+  constructor(balance:bigint, models: UnorderedMap<number>){
     this.balance = BigInt('0');
     this.models = models;
   }
 
-  publishModel(name: string){
-    this.models.set(name, 100.0);
+  get_balance(){
+    return this.balance;
   }
 
-  deleteModel(name: string){
-    this.models.remove(name);
+  get_model(modelName:string) {
+    Assertions.isModelExist(modelName, this.models);
+    return this.models.get(modelName);
   }
 
-  buyModel(name: string, amount: number){
-    this.models.set(name, amount);
-  }
-
-  sellModel(name: string, amount: number){
-    let current = this.models.get(name);
-    Assertions.isLeftGreaterThanRight(current, amount);
-    this.models.set(name, current - amount);
+  set_model(modelName:string, percentage: number){
+    return this.models.set(modelName, percentage);
+  } 
+  get_models(){
+    return this.models;
   }
 }
 
 @NearBindgen({requireInit: true})
 export class NeuroToken{
-  accounts: LookupMap<Account>; //
+  accounts: UnorderedMap<Account>; //
   totalSupply: bigint; //Total supply
-  models: LookupMap<bigint>; //List of model and its owner;
+  models: UnorderedMap<bigint>; //List of model and its owner;
 
   constructor(){
     this.totalSupply = BigInt("0");
-    this.accounts = new LookupMap("a");
-    this.models = new LookupMap("m"); 
+    this.accounts = new UnorderedMap("a");
+    this.models = new UnorderedMap("m"); 
   }
   @initialize({})
-  init({total_supply} : {total_supply: string}){
-    Assertions.isLeftGreaterThanRight(total_supply, 0);
-    this.totalSupply = BigInt(total_supply);
-    this.accounts = new LookupMap('a');
-    let ownerId : string= near.signerAccountId();
-    let ownerAccount = this.getAccount(ownerId);
+  init({ totalSupply} : {totalSupply: string}){
+    Assertions.isLeftGreaterThanRight(totalSupply, 0);
+    // validateAccountId(accountId);
 
-    this.accounts.set(ownerId, ownerAccount);
+    this.totalSupply = BigInt(totalSupply);
+    this.accounts = new UnorderedMap('a');
+    let accountId = near.signerAccountId();
+    let ownerAccount = this.get_account(accountId);
+
+    //near.log("Create initial state with " + accountId + " and total supply"  + totalSupply);
+    this.accounts.set(accountId, ownerAccount);
   }
 
-  getAccount(ownerId: string){
+  get_account(ownerId: string){
     let account : Account = this.accounts.get(ownerId);
     if (account === null) {
-      return new Account(BigInt('0'), new LookupMap(''));
+      return new Account(BigInt('0'), new UnorderedMap(''));
     }
     return new Account(
       account.balance,
@@ -70,11 +71,11 @@ export class NeuroToken{
     );
   }
 
-  setAccount(accountId : string, account : Account){
+  set_account(accountId : string, account : Account){
     this.accounts.set(accountId, account);
   }
 
-  sendNEAR(receivingAccountId: string, amount: bigint) {
+  send_NEAR(receivingAccountId: string, amount: bigint) {
     Assertions.isLeftGreaterThanRight(amount, 0);
     Assertions.isLeftGreaterThanRight(near.accountBalance(), amount, `Not enough balance ${near.accountBalance()} to send ${amount}`);
     const promise = near.promiseBatchCreate(receivingAccountId);
@@ -82,23 +83,24 @@ export class NeuroToken{
     near.promiseReturn(promise);
   }
 
-  getBalance(accountId: string): bigint {
+  get_balance(accountId: string): bigint {
     assert(
-      this.accounts.containsKey(accountId),
+      this.accounts.get(accountId) !== null,
       `Account ${accountId} is not registered`
     );
-    return this.accounts.get(accountId).balance;
+    const account = this.accounts.get(accountId);
+    return account.get_balance();
   } 
 
-  getModelPercentage(accountId: string, model_name: string):number{
-    assert(this.accounts.containsKey(accountId), `Account ${accountId} is not registered`);
-    assert(this.accounts.get(accountId).models.containsKey(model_name), `Account ${accountId} does not have the model ${model_name}`);
+  get_model_percentage(accountId: string, model_name: string):number{
+    assert(this.accounts.get(accountId) !== null, `Account ${accountId} is not registered`);
+    assert(this.accounts.get(accountId).models.get(model_name) !== null, `Account ${accountId} does not have the model ${model_name}`);
     
     return this.accounts.get(accountId).models.get(model_name);
   }
   internalTransaction(accountId: string, model_name:string, amount: bigint, model_percentage:number, withdraw:bigint) {
-    const balance = this.getBalance(accountId); 
-    const percentage_own = this.getModelPercentage(accountId, model_name);
+    const balance = this.get_balance(accountId); 
+    const percentage_own = this.get_model_percentage(accountId, model_name);
 
     const newBalance = balance + withdraw * BigInt(amount);
     const newOwn = percentage_own + Number(withdraw) * model_percentage ;
@@ -110,71 +112,75 @@ export class NeuroToken{
       Assertions.isLeftGreaterThanRight(newOwn, 0.0, "You can not lose more of a company");
     }
 
-    this.getAccount(accountId).models.set(model_name, newOwn);
-    const newModels = this.getAccount(accountId).models;
+    this.get_account(accountId).models.set(model_name, newOwn);
+    const newModels = this.get_account(accountId).models;
 
     const newAccount = new Account(newBalance, newModels);
-    this.setAccount(accountId, newAccount);
+    this.set_account(accountId, newAccount);
     this.totalSupply = newSupply;
   }
 
   internalTransfer(senderId: string,receiverId: string,model_name:string, amount: bigint, model_percentage:number ) {
     assert(senderId != receiverId, "Sender and receiver should be different");
-    Assertions.isLeftGreaterThanRight(amount, 0);
+    Assertions.isLeftGreaterThanRight(amount, -1);
     this.internalTransaction(senderId, model_name, amount, model_percentage, BigInt(-1));
     this.internalTransaction(receiverId, model_name, amount, model_percentage, BigInt(1));
   }
 
   @call({})
-  addModel({accountId, modelName} : {accountId:string, modelName:string}){ 
+  add_model({accountId, modelName} : {accountId:string, modelName:string}){ 
     const account_id = accountId || near.predecessorAccountId();
     validateAccountId(accountId); 
 
-    const account = this.getAccount(accountId);
-    assert(account.models.containsKey(modelName), "Model existed");
-    account.models.set(modelName, Number(100));
+    const account = this.get_account(accountId);
+    assert(account.models.get(modelName) !== null, "Model existed");
+    account.set_model(modelName, Number(100));
     const newModels = account.models;
 
-    const newAccount = new Account(this.getBalance(account_id), newModels);
-    this.setAccount(account_id, newAccount);
+    const newAccount = new Account(account.get_balance(), newModels);
+    this.set_account(account_id, newAccount);
   }
   @call({payableFunction:true})
-  useModel({receiverId, modelName, amount} : {receiverId:string, modelName:string, amount:bigint}){
+  use_model({receiverId, modelName, amount} : {receiverId:string, modelName:string, amount:bigint}){
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = near.predecessorAccountId();
-    near.log("Transfer " + amount + " token from " + senderId + " to " + receiverId);
+    near.log("Transfer " + amount + " token from " + senderId + " to " + receiverId + " on using the model " + modelName);
     
     this.internalTransfer(senderId, receiverId, modelName, amount, Number(0));
-    this.sendNEAR(receiverId, amount); 
+    this.send_NEAR(receiverId, amount); 
     
   }
   @call({payableFunction:true})
-  transferStock({receiver_id, model_name, amount, model_percentage} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
+  transfer_stock({receiver_id, model_name, amount, model_percentage} : {receiver_id:string, model_name:string, amount:bigint, model_percentage:number}){
     Assertions.hasAtLeastOneAttachedYocto();
     const senderId = near.predecessorAccountId();
     near.log("Transfer " + amount + " token from " + senderId + " to " + receiver_id);
     
     this.internalTransfer(senderId, receiver_id, model_name, amount, model_percentage);
-    this.sendNEAR(receiver_id, amount);  
+    this.send_NEAR(receiver_id, amount);  
+  }
+  @view({})
+  get_balance_of({accountId} : {accountId:string}) : bigint{
+    return this.get_balance(accountId);
   }
 
   @view({})
-  getTotalSupply(){
+  get_models_of({accountId} : {accountId : string}) : string{
+    let models = this.get_account(accountId).get_models().toArray();
+    near.log("The models of " + accountId + " is: " + models);
+    return JSON.stringify(models);
+  }
+  @view({})
+  get_total_supply(){
     return this.totalSupply;
   }
-  @view({})
-  getBalanceOf({accountId} : {accountId:string}){
-    validateAccountId(accountId);
-    return this.getBalance(accountId);
-  }
-  @view({})
-  getModelsOf({accountId} : {accountId : string}){
-    validateAccountId(accountId);
-    return this.getAccount(accountId).models;
-  }
+  
 }
 
 class Assertions {
+  static isModelExist(modelName : string, models : UnorderedMap<number>){
+    assert(models.get(modelName) !== null, "This model is not existed!");
+  }
   static hasAtLeastOneAttachedYocto() {
     assert(near.attachedDeposit() > BigInt(1),"Requires at least 1 yoctoNEAR to ensure signature");
   }

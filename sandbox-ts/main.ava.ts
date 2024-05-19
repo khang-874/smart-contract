@@ -3,27 +3,35 @@ import anyTest, { TestFn } from 'ava';
 
 const test = anyTest as TestFn<{ worker: Worker, accounts: any, variables: any}>;
 test.beforeEach(async (t) => {
+  //Init the worker and start a Sandbox server
   const worker = await Worker.init();
 
-  const totalSupply = 10000000;
-  const yoctoAccountStorage = "90";
+  const totalSupply = 1e6;
 
+  // Prepare sandbox for test,...
   const root = worker.rootAccount;
-  const xcc = await root.devDeploy("./build/neurocoin.wasm");
-  const ft = await root.createSubAccount("ft");
-  await ft.deploy("./build/neurocoin.wasm");
-  await root.call(ft, "init", {
-    owner_id: root.accountId,
-    total_supply: totalSupply.toString(),
-  });
-  const alice = await root.createSubAccount("alice", {
-    initialBalance: NEAR.parse("10 N").toJSON(),
-  });
 
+  // console.log("I'm here");
+  //Deploy the contract
+  const neurocoinFt = await root.devDeploy("./build/neurocoin.wasm");
+
+
+  // console.log("Deploy successfully");
+  //Test users
+  const khang = await root.createSubAccount('khang');
+  const hien = await root.createSubAccount('hien');
+
+  
+  //Init the contract
+  await khang.call(neurocoinFt, "init", {
+    accountId: khang.accountId,
+    totalSupply : totalSupply.toString() 
+  })
+
+  //Save state for test runs
   t.context.worker = worker;
-  t.context.accounts = { root, ft, alice, xcc };
-  t.context.variables = { totalSupply, yoctoAccountStorage };
-});
+  t.context.accounts = {root, neurocoinFt, khang, hien};
+ });
 
 test.afterEach.always(async (t) => {
   await t.context.worker.tearDown().catch((error) => {
@@ -31,221 +39,77 @@ test.afterEach.always(async (t) => {
   });
 });
 
-test("Check add model",  async (t) =>{
-  const {ft, alice} = t.context.accounts; 
-  const { yoctoAccountStorage } = t.context.variables;
-  await alice.call(
-    ft,
-    "addModel",
-    {accountId: alice.accoundId, modelName:"ChatGPT"}
-  )
-  // const result = await alice.call(
-  //   ft,
-  //   "",
-  //   { account_id: alice.accountId },
-  //   { attachedDeposit: NEAR.parse("1 N").toJSON() }
-  // );
-  const aliceAfterBalance = await alice.balance();
-  const expected = {
-    message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
-  };
-  const models = alice.getAccount(alice.accountId).models;
-  console.log(models);
-  // t.deepEqual(result, expected);
-  // t.true(
-  //   aliceAfterBalance.total > NEAR.parse("9 N").toJSON(),
-  //   "alice should have received a refund"
-  // );
-  t.is(true, true, "Test ");
+test("Owner initial details",  async (t) =>{
+  const {neurocoinFt, khang} = t.context.accounts; 
+
+  const totalSupply = await neurocoinFt.view("get_total_supply", {});
+
+  t.is(totalSupply, '1000000', "The total supply should be 1,000,000"); 
+  
+  // console.log(totalSupply);
+  // return true;
 });
-// test("should register account and pay for storage", async (t) => {
-//   const { ft, alice } = t.context.accounts;
-//   const { yoctoAccountStorage } = t.context.variables;
-//   const result = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   const aliceAfterBalance = await alice.balance();
-//   const expected = {
-//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
-//   };
-//   t.deepEqual(result, expected);
-//   t.true(
-//     aliceAfterBalance.total > NEAR.parse("9 N").toJSON(),
-//     "alice should have received a refund"
-//   );
+
+// test("Add model to the blockchain", async (t) =>{
+//   const {neurocoinFt, khang, hien} = t.context.accounts;
+
+//   // khang.call(neurocoinFt, "addModel", {
+//   //   modelName: "ChatGPT",
+//   // })
+
+//   // khang.call(neurocoinFt, "addModel", {
+//   //   modelName: "googleGPT",
+//   // })
+//   // let model;
+//   // try{
+//   //   const model = await neurocoinFt.view("getModelsOf", {accountId: khang.accountId});
+//   //   console.log(`All the model of ${khang.accountId}:  ${model}`);
+//   // }catch(e){
+//   //   console.log(e)
+//   // };
+
+//   // console.log(model);
+//   // t.is(models.containsKey('googleGPT'), true, "Contain google model");
+//   // t.is(models.containsKey('ChatGPT'), true, "Contain chatgpt");
 // });
 
-// test("should return message when account is already registered and not refund when no deposit is attached", async (t) => {
-//   const { ft, alice } = t.context.accounts;
-//   const { yoctoAccountStorage } = t.context.variables;
-//   const result = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   const expected = {
-//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
-//   };
-//   t.deepEqual(result, expected);
-//   const result2 = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("0 N").toJSON() }
-//   );
-//   t.is(result2.message, "Account is already registered");
-// });
+test("Add model", async (t) => {
+  const {neurocoinFt, khang, hien} = t.context.accounts;
+  khang.call(neurocoinFt, "add_model", {
+    modelName: "ChatGPT",
+  });
 
-// test("should return message and refund predecessor caller when trying to pay for storage for an account that is already registered", async (t) => {
-//   const { ft, alice } = t.context.accounts;
-//   const { yoctoAccountStorage } = t.context.variables;
-//   const result = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   const expected = {
-//     message: `Account ${alice.accountId} registered with storage deposit of ${yoctoAccountStorage}`,
-//   };
-//   t.deepEqual(result, expected);
-//   const result2 = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   t.is(
-//     result2.message,
-//     "Account is already registered, deposit refunded to predecessor"
-//   );
-//   const aliceBalance = await alice.balance();
-//   t.is(
-//     aliceBalance.total > NEAR.parse("9 N"),
-//     true,
-//     "alice should have received a refund"
-//   );
-// });
+  khang.call(neurocoinFt, "add_model", {
+    modelName: "googleGPT",
+  });
 
-// test("should return message when trying to pay for storage with less than the required amount and refund predecessor caller", async (t) => {
-//   const { ft, alice } = t.context.accounts;
-//   const { yoctoAccountStorage } = t.context.variables;
-//   const result = await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.from("40").toJSON() }
-//   );
-//   t.is(
-//     result.message,
-//     `Not enough attached deposit to cover storage cost. Required: ${yoctoAccountStorage}`
-//   );
-// });
+  let models = await neurocoinFt.view("get_models_of", {
+    accountId : khang.accountId
+  });
 
-// test("should throw when trying to transfer for an unregistered account", async (t) => {
-//   const { ft, alice, root } = t.context.accounts;
-//   try {
-//     await root.call(
-//       ft,
-//       "ft_transfer",
-//       { receiver_id: alice.accountId, amount: "1" },
-//       { attachedDeposit: NEAR.from("1").toJSON() }
-//     );
-//   } catch (error) {
-//     t.true(
-//       error.message.includes(`Account ${alice.accountId} is not registered`)
-//     );
-//   }
-// });
+  console.log(models);
 
-// test("Owner has all balance in the beginning", async (t) => {
-//   const { ft, root } = t.context.accounts;
-//   const result = await ft.view("ft_balance_of", { account_id: root.accountId });
-//   t.is(result, "1000");
-// });
+});
 
-// test("Can transfer if balance is sufficient", async (t) => {
-//   const { alice, ft, root } = t.context.accounts;
-//   await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   await root.call(
-//     ft,
-//     "ft_transfer",
-//     { receiver_id: alice.accountId, amount: "100" },
-//     { attachedDeposit: NEAR.from("1").toJSON() }
-//   );
-//   const aliBalance = await ft.view("ft_balance_of", {
-//     account_id: alice.accountId,
-//   });
-//   t.is(aliBalance, "100");
-//   const ownerBalance = await ft.view("ft_balance_of", {
-//     account_id: root.accountId,
-//   });
-//   t.is(ownerBalance, "900");
-// });
+test("Use the model", async (t) =>{
+  const {neurocoinFt, khang, hien} = t.context.accounts;
+  khang.call(neurocoinFt, "add_model", {
+    modelName: "ChatGPT",
+  });
 
-// test("Cannot transfer if balance is not sufficient", async (t) => {
-//   const { alice, root, ft } = t.context.accounts;
-//   await alice.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: alice.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   try {
-//     await alice.call(
-//       ft,
-//       "ft_transfer",
-//       {
-//         receiverId: root.accountId,
-//         amount: "100",
-//       },
-//       { attachedDeposit: NEAR.from("1").toJSON() }
-//     );
-//   } catch (e) {
-//     t.assert(
-//       e
-//         .toString()
-//         .indexOf(
-//           "Smart contract panicked: assertion failed: The account doesn't have enough balance"
-//         ) >= 0
-//     );
-//   }
-// });
+  khang.call(neurocoinFt, "add_model", {
+    modelName: "googleGPT",
+  });
 
-// test("Cross contract transfer", async (t) => {
-//   const { xcc, ft, root } = t.context.accounts;
-//   await xcc.call(
-//     ft,
-//     "storage_deposit",
-//     { account_id: xcc.accountId },
-//     { attachedDeposit: NEAR.parse("1 N").toJSON() }
-//   );
-//   await root.call(
-//     ft,
-//     "ft_transfer_call",
-//     { receiver_id: xcc.accountId, amount: "900", memo: null, msg: "test msg" },
-//     { gas: 200000000000000, attachedDeposit: NEAR.from("1").toJSON() }
-//   );
-//   const xccBalance = await ft.view("ft_balance_of", {
-//     account_id: xcc.accountId,
-//   });
-//   t.is(xccBalance, "900");
-//   const aliSubContractData = await xcc.view("get_contract_data");
-//   t.is(
-//     aliSubContractData,
-//     `[900 from ${root.accountId} to ${xcc.accountId}] test msg `
-//   );
-//   const ownerBalance = await ft.view("ft_balance_of", {
-//     account_id: root.accountId,
-//   });
-//   t.is(ownerBalance, "100");
-// });
+  hien.call(neurocoinFt, "use_model", {
+    receiverId: khang.accountId,
+    modelName: "ChatGPT",
+    amount: 10,
+  }, {
+    attachedDeposit: NEAR.parse("10 N").toJSON()  
+  })
+  
+  const khangAfterBalance = await khang.balance();
+
+  t.true(khangAfterBalance.total >= NEAR.parse("10 N").toJSON(), "The balance should be greater than 10")
+});
